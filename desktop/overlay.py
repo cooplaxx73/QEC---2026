@@ -2,8 +2,9 @@
 The on-screen overlay: two buttons, the instructions panel and pop-ups.
 
 Design rules from the project brief:
-- Only two icon buttons stay on screen: Settings and Call Caregiver.
-- Everything else (instructions, keyboard, tuning) is behind Settings.
+- Only four icon buttons stay on screen: Call Caregiver, Keyboard,
+  Controls and Notifications.
+- An incoming video call pops up and rings until it is answered.
 - Everything is large, because webcam eye tracking is not pixel-accurate.
 - Overlay windows never take keyboard focus, so typing still goes to the
   app the patient is using.
@@ -14,8 +15,8 @@ Written with the assistance of Claude Code (Anthropic).
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QPushButton,
+                               QVBoxLayout, QWidget)
 
 # Always on top, no title bar, no taskbar entry, never takes keyboard focus.
 OVERLAY_FLAGS = (
@@ -31,9 +32,10 @@ INSTRUCTIONS = [
     "Click: close both eyes for about half a second, then open them.",
     "Zoom: look at a target and lean towards the screen. "
     "Then sit back and click in the zoomed view.",
-    "Type: open Settings and choose Keyboard.",
-    "The gear button opens Settings.",
     "The phone button sends a message to your caregiver's phone.",
+    "The keyboard button opens the on-screen keyboard for typing.",
+    "The gear button opens Controls, where you choose what a long blink does.",
+    "The bell button shows your notifications.",
     "Your camera is never shared unless you accept a video call.",
 ]
 
@@ -53,6 +55,14 @@ def make_button(text: str, colour: str, on_click,
     return button
 
 
+def set_button_colour(button: QPushButton, colour: str) -> None:
+    """Change a button's background, e.g. to highlight the chosen option."""
+    # Colours are always 7 characters long, like "#2e7d32".
+    style = button.styleSheet()
+    start = style.index("background: ") + len("background: ")
+    button.setStyleSheet(style[:start] + colour + style[start + 7:])
+
+
 def screen_area():
     """The usable part of the main screen (without the taskbar)."""
     return QGuiApplication.primaryScreen().availableGeometry()
@@ -67,35 +77,60 @@ def centre_on_screen(window: QWidget) -> None:
     )
 
 
-# Settings the patient can tune themselves:
+# Controls the patient can tune themselves:
 # (label, name in config.py, step, smallest, largest)
 ADJUSTABLE = [
-    ("Click: eyes closed for (seconds)", "click_hold_seconds", 0.1, 0.3, 2.0),
+    ("Eyes closed for (seconds)", "click_hold_seconds", 0.1, 0.3, 1.4),
     ("Cursor steadiness", "cursor_smoothing", 0.1, 0.0, 1.0),
     ("Cursor reach", "cursor_sensitivity", 0.1, 0.5, 2.5),
 ]
 
+# What a long blink can do: (button text, value stored in config.py)
+BLINK_ACTIONS = [
+    ("Left click", "left_click"),
+    ("Right click", "right_click"),
+    ("Double click", "double_click"),
+]
+
 
 class ButtonBar(QWidget):
-    """The two icon buttons that are always visible, bottom-right corner."""
+    """The four icon buttons that are always visible, bottom-right corner."""
 
-    settings_clicked = Signal()
     call_clicked = Signal()
+    keyboard_clicked = Signal()
+    controls_clicked = Signal()
+    notifications_clicked = Signal()
 
     def __init__(self):
         super().__init__(None, OVERLAY_FLAGS)
         self.setAttribute(Qt.WA_TranslucentBackground)
         layout = QVBoxLayout(self)
         for icon, colour, signal, tip in [
-            ("\u260E", RED, self.call_clicked, "Call caregiver"),   # telephone
-            ("\u2699", GREY, self.settings_clicked, "Settings"),    # gear
+            ("\u260E", RED, self.call_clicked, "Call caregiver"),          # telephone
+            ("\u2328", BLUE, self.keyboard_clicked, "Keyboard"),           # keyboard
+            ("\u2699", GREY, self.controls_clicked, "Controls"),           # gear
+            ("\U0001F514", GREY, self.notifications_clicked, "Notifications"),  # bell
         ]:
             button = make_button(icon, colour, signal.emit, 110, 110, font_size=52)
             button.setToolTip(tip)
             layout.addWidget(button)
+
+        # A red number on the bell shows how many notifications are unread.
+        self.badge = QLabel(button)  # "button" is the bell, the last one made
+        self.badge.setAlignment(Qt.AlignCenter)
+        self.badge.setGeometry(70, 6, 34, 34)
+        self.badge.setStyleSheet(
+            f"background: {RED}; color: white; font-size: 18px;"
+            " font-weight: bold; border-radius: 17px;")
+        self.set_unread(0)
+
         self.adjustSize()
         area = screen_area()
         self.move(area.right() - self.width(), area.bottom() - self.height())
+
+    def set_unread(self, count: int) -> None:
+        self.badge.setText(str(count))
+        self.badge.setVisible(count > 0)
 
 
 class Panel(QWidget):
@@ -126,21 +161,30 @@ class Panel(QWidget):
             self.show()
 
 
-class SettingsPanel(Panel):
-    """Everything that is not needed all the time lives behind the gear."""
+class ControlsPanel(Panel):
+    """Lets the patient choose how the controls behave."""
 
     instructions_clicked = Signal()
-    keyboard_clicked = Signal()
     recalibrate_clicked = Signal()
     quit_clicked = Signal()
-    setting_changed = Signal(str, float)  # (name in config.py, new value)
+    setting_changed = Signal(str, object)  # (name in config.py, new value)
 
     def __init__(self, settings):
-        super().__init__("Settings")
+        super().__init__("Controls")
         self.settings = settings
-        self.value_labels = {}
 
-        # One row per adjustable setting:  label   [-]  value  [+]
+        # Row 1: what a long blink does.
+        self.rows.addWidget(QLabel("A long blink does a:"))
+        self.action_buttons = {}
+        row = QHBoxLayout()
+        for text, value in BLINK_ACTIONS:
+            button = make_button(text, GREY, self.setter("blink_action", value), 200, 90)
+            self.action_buttons[value] = button
+            row.addWidget(button)
+        self.rows.addLayout(row)
+
+        # One row per number:  label   [-]  value  [+]
+        self.value_labels = {}
         for label, name, step, smallest, largest in ADJUSTABLE:
             row = QHBoxLayout()
             row.addWidget(QLabel(label), 1)
@@ -158,22 +202,36 @@ class SettingsPanel(Panel):
                 80, 80, font_size=34))
             self.rows.addLayout(row)
 
+        # Zoom on or off.
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Zoom when leaning towards the screen"), 1)
+        self.zoom_button = make_button("", GREY, self.toggle_zoom, 180, 80)
+        row.addWidget(self.zoom_button)
+        self.rows.addLayout(row)
+
         self.add_button_row([
             ("Instructions", BLUE, self.instructions_clicked.emit),
-            ("Keyboard", BLUE, self.keyboard_clicked.emit),
             ("Recalibrate", GREY, self.recalibrate_clicked.emit),
             ("Turn off", GREY, self.quit_clicked.emit),
             ("Close", GREEN, self.hide),
         ])
         self.refresh()
 
-    def adjuster(self, name: str, change: float, smallest: float, largest: float):
-        """Makes the function that a - or + button runs when clicked."""
-        return lambda: self.adjust(name, change, smallest, largest)
+    def setter(self, name: str, value):
+        """Makes the function that a choice button runs when clicked."""
+        return lambda: self.change(name, value)
 
-    def adjust(self, name: str, change: float, smallest: float, largest: float) -> None:
-        value = round(getattr(self.settings, name) + change, 2)
-        value = min(max(value, smallest), largest)
+    def adjuster(self, name: str, step: float, smallest: float, largest: float):
+        """Makes the function that a - or + button runs when clicked."""
+        def adjust():
+            value = round(getattr(self.settings, name) + step, 2)
+            self.change(name, min(max(value, smallest), largest))
+        return adjust
+
+    def toggle_zoom(self) -> None:
+        self.change("zoom_enabled", not self.settings.zoom_enabled)
+
+    def change(self, name: str, value) -> None:
         self.setting_changed.emit(name, value)
         self.refresh()
 
@@ -181,10 +239,105 @@ class SettingsPanel(Panel):
         """Show the current values (the caregiver may have changed them)."""
         for name, label in self.value_labels.items():
             label.setText(f"{getattr(self.settings, name):.1f}")
+        for value, button in self.action_buttons.items():
+            chosen = value == self.settings.blink_action
+            set_button_colour(button, GREEN if chosen else GREY)
+        self.zoom_button.setText("On" if self.settings.zoom_enabled else "Off")
+        set_button_colour(
+            self.zoom_button, GREEN if self.settings.zoom_enabled else GREY)
 
     def toggle(self) -> None:
         self.refresh()
         super().toggle()
+
+
+class NotificationsPanel(Panel):
+    """Recent messages, e.g. "your caregiver changed your settings"."""
+
+    read_aloud_clicked = Signal()
+    SHOWN = 6  # how many of the newest messages to show
+
+    def __init__(self):
+        super().__init__("Notifications")
+        self.messages = []  # (time as text, message), newest last
+        self.list = QLabel()
+        self.list.setWordWrap(True)
+        self.list.setMinimumWidth(700)
+        self.rows.addWidget(self.list)
+        self.add_button_row([
+            ("Read aloud", BLUE, self.read_aloud_clicked.emit),
+            ("Clear", GREY, self.clear),
+            ("Close", GREEN, self.hide),
+        ])
+        self.refresh()
+
+    def add(self, time_text: str, message: str) -> None:
+        self.messages.append((time_text, message))
+        self.refresh()
+
+    def newest(self) -> list:
+        return self.messages[-self.SHOWN:][::-1]
+
+    def clear(self) -> None:
+        self.messages = []
+        self.refresh()
+
+    def refresh(self) -> None:
+        lines = [f"{time_text}   {message}" for time_text, message in self.newest()]
+        self.list.setText("\n\n".join(lines) or "No notifications.")
+        if self.isVisible():
+            centre_on_screen(self)  # the size may have changed
+
+
+class IncomingCallPopup(Panel):
+    """Rings until the patient accepts or declines a video call."""
+
+    answered = Signal(str)   # "accept" or "decline"
+    RING_SECONDS = 1.2
+    GIVE_UP_AFTER_RINGS = 30
+
+    def __init__(self):
+        super().__init__("Incoming video call")
+        self.phone = QLabel("\u260E")
+        self.phone.setAlignment(Qt.AlignCenter)
+        self.rows.addWidget(self.phone)
+        message = QLabel("Your caregiver would like a video call.\n"
+                         "Your camera stays off unless you accept.")
+        message.setAlignment(Qt.AlignCenter)
+        self.rows.addWidget(message)
+        self.add_button_row([
+            ("Accept", GREEN, lambda: self.answer("accept")),
+            ("Decline", RED, lambda: self.answer("decline")),
+        ])
+        self.ring_timer = QTimer(self, interval=int(self.RING_SECONDS * 1000),
+                                 timeout=self.ring)
+
+    def start_ringing(self) -> None:
+        self.rings = 0
+        centre_on_screen(self)
+        self.show()
+        self.ring()
+        self.ring_timer.start()
+
+    def ring(self) -> None:
+        """Beep and flash the phone. Give up if nobody answers."""
+        self.rings += 1
+        if self.rings > self.GIVE_UP_AFTER_RINGS:
+            self.answer("decline")
+            return
+        QApplication.beep()
+        colour = "#ffeb3b" if self.rings % 2 else "white"
+        self.phone.setStyleSheet(f"font-size: 110px; color: {colour};")
+
+    def answer(self, choice: str) -> None:
+        self.ring_timer.stop()
+        self.hide()
+        self.answered.emit(choice)
+
+    def stop_ringing(self) -> None:
+        """The caregiver hung up before the patient answered."""
+        self.ring_timer.stop()
+        self.hide()
 
 
 class InstructionsPanel(Panel):
