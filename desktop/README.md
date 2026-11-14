@@ -6,7 +6,7 @@ Lets a person with ALS control their computer with their eyes, using a normal we
 |---|---|
 | Move the cursor | Look where you want it to go |
 | Left click | Close both eyes for about half a second |
-| Zoom | Lean towards the screen while looking at a target |
+| Zoom | Look at a target and lean towards the screen. Sit back, then click in the zoomed view |
 | Type | Use the on-screen keyboard |
 | Pause eye control | Press F8 (for a helper) |
 
@@ -46,15 +46,28 @@ The first run downloads the MediaPipe face model (about 4 MB).
 | `zoom.py` | Lean-forward zoom |
 | `lighting.py` | Dark-room detection and brightness boost |
 | `speech.py` | Read-aloud |
+| `video_call.py` | Corner video window for caregiver calls |
 | `activity_log.py` | Patient progression log |
 | `caregiver_link.py` | Talks to the caregiver backend |
 | `stub_server.py` | Stand-in backend until the real one exists |
 | `main.py` | Starts everything |
 
+## For the website and app team
+
+`stub_server.py` is a stand-in backend. The list of web addresses it answers
+is at the top of that file. Point your app at it while building, or copy the
+same addresses into the real backend and change `backend_url` in `config.py`.
+
+Open http://127.0.0.1:8000 while it runs for a caregiver test page. It can
+change settings, request a video call and show both activity logs.
+
+Setting names the caregiver app can change are the field names in `config.py`,
+for example `{"changes": {"click_hold_seconds": 0.8}, "by": "Sam"}`.
+
 ## Privacy
 
 - Camera frames are processed on this computer and never saved.
-- The camera is only shared with a caregiver after the patient accepts a video call.
+- The camera is only shared after BOTH the patient and the caregiver accept a video call.
 - The activity log stores counts and times of actions, not what was typed.
 
 ## References
