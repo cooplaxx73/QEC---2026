@@ -32,7 +32,7 @@ class Settings:
 
     # Zoom by leaning towards the screen
     zoom_enabled: bool = True
-    zoom_lean_ratio: float = 1.12     # face must look this much bigger
+    zoom_lean_ratio: float = 1.18     # face must look this much bigger
     zoom_factor: float = 2.5
 
     # Dark rooms
