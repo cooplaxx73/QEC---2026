@@ -34,6 +34,16 @@ python main.py
 
 The first run downloads the MediaPipe face model (about 4 MB).
 
+To try the overlay layout with a mouse before starting eye tracking:
+
+```bash
+python preview_overlay.py
+```
+
+The preview uses no webcam or backend, and simulates caregiver calls. The
+on-screen keyboard still types into the foreground app. Press F9 or use
+Settings > Turn off to close it.
+
 ## Checks
 
 From `desktop`, with the virtual environment active:
