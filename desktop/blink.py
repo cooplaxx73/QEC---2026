@@ -12,7 +12,7 @@ Libraries: none (plain Python).
 Written with the assistance of Claude Code (Anthropic).
 """
 
-MAX_HOLD_SECONDS = 3.0  # closed longer than this = resting, not clicking
+MAX_HOLD_SECONDS = 1.5  # closed longer than this = resting or looking down, not clicking
 
 
 class BlinkClicker:
