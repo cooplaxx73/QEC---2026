@@ -11,6 +11,7 @@ Everything is kept in memory and is lost when the server stops.
     POST /patient/call             {"video": true/false}
     POST /{side}/video             {"action": "request" | "accept" | "decline" | "end"}
     POST /caregiver/settings       {"changes": {"click_hold_seconds": 0.8}, "by": "Sam"}
+    POST /caregiver/command        {"command": "ability_test", "by": "Sam"}
     POST /patient/logs             one activity log entry
     POST /{side}/frame             a JPEG picture (kept only during a call)
     GET  /{side}/frame             the newest JPEG picture from that side
@@ -114,6 +115,10 @@ class Handler(BaseHTTPRequestHandler):
                 add_audit("settings changed", changes=data["changes"], by=data.get("by", ""))
                 add_event("patient", "settings_changed",
                           changes=data["changes"], by=data.get("by", ""))
+            elif path == "/caregiver/command":
+                data = json.loads(body)
+                add_audit("command " + data["command"], by=data.get("by", ""))
+                add_event("patient", "command", command=data["command"])
             elif path == "/patient/logs":
                 patient_log.append(json.loads(body))
             else:

@@ -33,8 +33,12 @@ class TrackingInterruptions(unittest.TestCase):
             paused=False,
             toast=Mock(),
             link=SimpleNamespace(video_active=False),
+            dots=Mock(),
+            ability_test=Mock(**{"isVisible.return_value": False}),
+            show_dots_if_wanted=Mock(),
         )
         self.control.reset_tracking = lambda: EyeControl.reset_tracking(self.control)
+        self.control.hide_windows = lambda: EyeControl.hide_windows(self.control)
         self.control.clicker.update(1.0, 1.0, 0.5, 0.6)
         self.control.smoother.update((0.1, 0.2))
         self.control.lean.update(1.5, 1.0, 1.18, 1.0)

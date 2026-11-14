@@ -5,7 +5,7 @@ Design rules:
 - Only four icon buttons stay on screen: Call Caregiver, Keyboard,
   Settings and Notifications.
 - Settings is one window with tabs along the top: Instructions,
-  Recalibrate and Turn off.
+  Recalibrate, Ability test and Turn off.
 - An incoming video call pops up and rings until it is answered.
 - Everything is large, because webcam eye tracking is not pixel-accurate.
 - The button under the cursor gets a thick outline, so the patient can
@@ -188,12 +188,13 @@ class Panel(Card):
 
 
 class SettingsPanel(Panel):
-    """One window with three tabs along the top."""
+    """One window with four tabs along the top."""
 
-    TABS = ["Instructions", "Recalibrate", "Turn off"]
+    TABS = ["Instructions", "Recalibrate", "Ability test", "Turn off"]
 
     read_aloud_clicked = Signal()
     recalibrate_clicked = Signal()
+    ability_test_clicked = Signal()
     quit_clicked = Signal()
 
     def __init__(self):
@@ -225,6 +226,12 @@ class SettingsPanel(Panel):
             "Look at 13 dots, one at a time. It takes about 30 seconds.\n"
             "Do this again if the cursor stops matching where you look.",
             "Start", "primary", self.recalibrate_clicked.emit))
+        self.pages.addWidget(self.action_page(
+            "Finds the face movement you can make most reliably, so you can "
+            "click with that instead of a long blink.\n"
+            "You will be asked to make five movements, three times each. "
+            "It takes about a minute.",
+            "Start test", "primary", self.ability_test_clicked.emit))
         self.pages.addWidget(self.action_page(
             "Turns eye control off and removes the buttons from the screen.\n"
             "A helper will need to start the program again.",

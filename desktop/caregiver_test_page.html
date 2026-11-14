@@ -13,6 +13,7 @@
   body { font-family: Arial, sans-serif; max-width: 720px; margin: 20px auto; padding: 0 16px; }
   button { font-size: 16px; padding: 10px 16px; margin: 4px 4px 4px 0; }
   input { font-size: 16px; width: 80px; }
+  select { font-size: 16px; }
   label { display: inline-block; width: 190px; }
   pre { background: #f3f3f3; padding: 10px; max-height: 180px; overflow: auto; }
   img, canvas { width: 240px; height: 180px; background: #222; }
@@ -27,7 +28,18 @@
 <div><label>Click hold (seconds)</label><input id="click_hold_seconds" value="0.6"></div>
 <div><label>Cursor sensitivity</label><input id="cursor_sensitivity" value="1.0"></div>
 <div><label>Cursor smoothing (0 to 1)</label><input id="cursor_smoothing" value="0.5"></div>
+<div><label>Click with</label>
+  <select id="click_signal">
+    <option value="blink">Long blink</option>
+    <option value="eyebrows">Raise eyebrows</option>
+    <option value="jaw">Open mouth</option>
+    <option value="smile">Smile</option>
+    <option value="pucker">Pucker lips</option>
+  </select></div>
+<div><label>Movement strength (0 to 1)</label><input id="click_signal_threshold" value="0.4"></div>
+<div><label>Follow-the-dot buttons</label><input id="follow_dot_enabled" type="checkbox" style="width:auto"></div>
 <button onclick="sendSettings()">Send settings</button>
+<button onclick="command('ability_test')">Run ability test on patient</button>
 
 <h3>Video call: <span id="videoState">off</span></h3>
 <button onclick="video('request')">Request video</button>
@@ -54,11 +66,16 @@ function post(path, data) {
 
 function sendSettings() {
   const changes = {};
-  for (const name of ["click_hold_seconds", "cursor_sensitivity", "cursor_smoothing"]) {
+  for (const name of ["click_hold_seconds", "cursor_sensitivity", "cursor_smoothing",
+                      "click_signal_threshold"]) {
     changes[name] = Number(document.getElementById(name).value);
   }
+  changes.click_signal = document.getElementById("click_signal").value;
+  changes.follow_dot_enabled = document.getElementById("follow_dot_enabled").checked;
   post("/caregiver/settings", { changes: changes, by: "Test caregiver" });
 }
+
+function command(name) { post("/caregiver/command", { command: name, by: "Test caregiver" }); }
 
 function video(action) { post("/caregiver/video", { action: action }); }
 

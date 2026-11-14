@@ -30,6 +30,14 @@ class Settings:
     click_hold_seconds: float = 0.6   # how long the eyes must stay closed
     blink_action: str = "left_click"  # left_click, right_click or double_click
 
+    # Which face movement clicks: blink, eyebrows, jaw, smile or pucker.
+    # The ability test (ability_test.py) finds the best one and its threshold.
+    click_signal: str = "blink"
+    click_signal_threshold: float = 0.4   # how strong it must be (0 to 1)
+
+    # Choose our own buttons by following a moving dot (follow_dot.py)
+    follow_dot_enabled: bool = False
+
     # Zoom by leaning towards the screen
     zoom_enabled: bool = True
     zoom_lean_ratio: float = 1.18     # face must look this much bigger
