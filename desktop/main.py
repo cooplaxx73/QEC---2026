@@ -35,15 +35,23 @@ from gaze import (GazeMapper, OneEuroFilter, eyes_closed_amount, face_size,
                   gaze_features)
 from keyboard import OnScreenKeyboard
 from lighting import LowLightHelper
-from overlay import (INSTRUCTIONS, ButtonBar, ChoicePopup, ControlsPanel,
-                     IncomingCallPopup, InstructionsPanel, NotificationsPanel,
-                     Toast)
+from overlay import (INSTRUCTIONS, ButtonBar, ChoicePopup, IncomingCallPopup,
+                     NotificationsPanel, SettingsPanel, Toast)
 from speech import Speaker
 from video_call import VideoWindow, frame_to_jpeg
 from zoom import LeanDetector, ZoomView
 
 FREEZE_AFTER_BLINK_SECONDS = 0.25  # eyes need a moment to settle after opening
 GOOD_CALIBRATION = 0.07            # expected error below 7% of the screen
+
+
+def play_click_sound() -> None:
+    """A short, high beep. Different from the lower system beep of a call."""
+    try:
+        import winsound  # part of Python, but only on Windows
+        winsound.Beep(1200, 60)  # 1200 hertz for 60 milliseconds
+    except ImportError:
+        QApplication.beep()
 
 
 class CameraThread(QThread):
@@ -111,15 +119,14 @@ class EyeControl(QObject):
         self.keyboard.key_typed.connect(lambda: self.record("key"))
         self.buttons.keyboard_clicked.connect(self.keyboard.toggle)
 
-        self.controls = ControlsPanel(self.settings)
-        self.buttons.controls_clicked.connect(self.controls.toggle)
-        self.controls.setting_changed.connect(self.on_patient_changed_setting)
-        self.controls.instructions_clicked.connect(self.open_instructions)
-        self.controls.recalibrate_clicked.connect(self.start_calibration)
-        self.controls.quit_clicked.connect(self.ask_to_quit)
-        self.instructions = InstructionsPanel()
-        self.instructions.read_aloud_clicked.connect(
+        # Settings has four tabs: Instructions, Controls, Recalibrate, Turn off.
+        self.settings_panel = SettingsPanel(self.settings)
+        self.buttons.settings_clicked.connect(self.settings_panel.toggle)
+        self.settings_panel.setting_changed.connect(self.on_patient_changed_setting)
+        self.settings_panel.read_aloud_clicked.connect(
             lambda: self.speaker.say(" ".join(INSTRUCTIONS)))
+        self.settings_panel.recalibrate_clicked.connect(self.start_calibration)
+        self.settings_panel.quit_clicked.connect(self.ask_to_quit)
 
         self.notifications = NotificationsPanel()
         self.unread = 0
@@ -156,8 +163,8 @@ class EyeControl(QObject):
     # ----- calibration -----
 
     def start_calibration(self) -> None:
-        for window in (self.buttons, self.controls, self.instructions,
-                       self.notifications, self.keyboard):
+        for window in (self.buttons, self.settings_panel, self.notifications,
+                       self.keyboard):
             window.hide()
         self.calibration.start()
 
@@ -175,7 +182,7 @@ class EyeControl(QObject):
         else:
             self.announce(
                 "Ready, but tracking may be rough. For better accuracy, light "
-                "your face, keep your head still and recalibrate from Controls.",
+                "your face, keep your head still and recalibrate from Settings.",
                 seconds=10)
 
     # ----- every camera frame -----
@@ -244,6 +251,7 @@ class EyeControl(QObject):
         action = self.settings.blink_action
         button = mouse.Button.right if action == "right_click" else mouse.Button.left
         self.mouse.click(button, 2 if action == "double_click" else 1)
+        play_click_sound()  # tells the patient the click went through
         # The blink length is logged: it shows how eyelid control is changing.
         self.record("click", self.clicker.last_duration)
 
@@ -260,10 +268,6 @@ class EyeControl(QObject):
 
     # ----- overlay buttons -----
 
-    def open_instructions(self) -> None:
-        self.controls.hide()
-        self.instructions.toggle()
-
     def open_notifications(self) -> None:
         self.unread = 0
         self.buttons.set_unread(0)
@@ -274,7 +278,7 @@ class EyeControl(QObject):
         self.speaker.say(" ".join(messages) or "No notifications.")
 
     def on_patient_changed_setting(self, name: str, value) -> None:
-        """The patient changed something in the Controls panel."""
+        """The patient changed something in the Controls tab of Settings."""
         setattr(self.settings, name, value)
         save_settings(self.settings)
         self.smoother.set_smoothing(self.settings.cursor_smoothing)
@@ -297,7 +301,7 @@ class EyeControl(QObject):
         self.announce("Your caregiver has been notified.")
 
     def ask_to_quit(self) -> None:
-        self.controls.hide()
+        self.settings_panel.hide()
         self.ask("Turn off eye control?", ["Yes, turn off", "Cancel"],
                  lambda choice: self.app.quit() if choice != "Cancel" else None)
 
@@ -339,7 +343,7 @@ class EyeControl(QObject):
             return
         save_settings(self.settings)
         self.smoother.set_smoothing(self.settings.cursor_smoothing)
-        self.controls.refresh()
+        self.settings_panel.refresh()
         changes = ", ".join(
             f"{name.replace('_', ' ')} is now {value}" for name, value in applied.items())
         self.record("settings_changed", note=changes)
