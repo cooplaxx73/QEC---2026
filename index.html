@@ -1,0 +1,99 @@
+<!-- Purpose: Provide the single-login SignalSpeak mobile app prototype and screen structure. -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#eef4ef">
+  <meta name="description" content="SignalSpeak care companion app prototype.">
+  <meta name="application-name" content="SignalSpeak">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="SignalSpeak">
+  <title>SignalSpeak · Care, connected</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script defer src="script.js"></script>
+</head>
+<body>
+  <section class="login-wrap" id="login-screen">
+    <div class="login-art" aria-hidden="true"><div class="sun"></div><div class="hill hill-back"></div><div class="hill hill-front"></div><span class="art-caption">Care, connected.</span></div>
+    <div class="login-card">
+      <a class="wordmark" href="#" aria-label="SignalSpeak home"><span class="mark">s</span> SignalSpeak</a>
+      <p class="eyebrow">A CALMER WAY TO CONNECT</p>
+      <h1>Welcome back.</h1>
+      <p class="muted">Sign in to your shared care space.</p>
+      <form id="login-form">
+        <label for="username">Username</label>
+        <input id="username" name="username" autocomplete="username" placeholder="Enter your username" required>
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required>
+        <button class="button primary full" type="submit">Sign in <span>→</span></button>
+      </form>
+      <p class="login-note"><span class="lock-icon">⌑</span> One shared account. A space made for care.</p>
+      <p class="demo-note">Visual prototype · Any username and password will open the demo.</p>
+    </div>
+  </section>
+
+  <div class="app-shell" id="app-screen" hidden>
+    <aside class="rail">
+      <a class="wordmark" href="#home" aria-label="SignalSpeak"><span class="mark">s</span><span>SignalSpeak</span></a>
+      <div class="rail-label">YOUR SPACE</div>
+      <nav class="side-nav" aria-label="Main navigation">
+        <button class="nav-item active" data-view="home"><span class="nav-icon">⌂</span><span>Home</span></button>
+        <button class="nav-item" data-view="settings"><span class="nav-icon">☷</span><span>Settings</span></button>
+        <button class="nav-item" data-view="logs"><span class="nav-icon">◷</span><span>Activity log</span></button>
+        <button class="nav-item" data-view="guide"><span class="nav-icon">ⓘ</span><span>Instructions</span></button>
+      </nav>
+      <div class="rail-bottom"><div class="avatar">S</div><div><strong>Shared account</strong><small>Care space</small></div><button class="icon-button signout" id="signout" aria-label="Sign out">↗</button></div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar"><div class="mobile-brand"><span class="mark">s</span> SignalSpeak</div><button class="dashboard-back" id="dashboard-back" data-view="home" hidden>← <span>Back to dashboard</span></button><div class="top-context">Your shared care space <span class="dot"></span> Just you and your circle</div><div class="account-area"><button class="profile-chip" id="profile-menu-toggle" aria-expanded="false" aria-controls="account-menu"><span class="avatar small">S</span><span>Shared account</span><span class="chevron">⌄</span></button><div class="account-menu" id="account-menu" hidden><span>Signed in to the shared account</span><button id="signout-menu">↗ <span>Sign out</span></button></div></div></header>
+      <div class="content">
+        <section class="view active" id="view-home">
+          <div class="page-intro home-intro"><p class="eyebrow">YOUR SHARED CARE SPACE</p><h1>Stay close<span class="period">.</span></h1></div>
+          <div class="home-stack">
+            <section class="surface call-card"><div class="call-illustration"><span>♡</span><i></i></div><p class="eyebrow">HERE WHEN YOU NEED</p><h2>See someone you love</h2><p class="muted">Request a video call. Your camera and microphone stay off until you approve access.</p><button class="button primary" data-open="camera-modal">Request a call <span>→</span></button></section>
+            <section class="surface privacy-card"><div class="privacy-card-heading"><div class="metric-icon sage">♧</div><div><p class="eyebrow">YOUR PRIVACY</p><h2>You’re in control</h2></div></div><p>Camera and microphone stay off until you approve a call request.</p><div class="privacy-devices"><span>Camera <b>Off</b></span><span>Microphone <b>Off</b></span></div></section>
+            <div class="home-shortcuts"><button class="shortcut-button" data-view="settings"><span class="shortcut-icon">☷</span><span><strong>Settings</strong><small>Adjust your controls</small></span><b>→</b></button><button class="shortcut-button" data-view="logs"><span class="shortcut-icon">◷</span><span><strong>Activity log</strong><small>Review shared activity</small></span><b>→</b></button></div>
+          </div>
+        </section>
+
+        <section class="view" id="view-settings">
+          <div class="page-intro"><p class="eyebrow">MAKE IT YOURS</p><h1>Settings</h1><p class="muted">Small adjustments can make a big difference. Changes apply right away.</p></div>
+          <div class="settings-layout"><div class="settings-main">
+            <section class="surface setting-group"><div class="setting-heading"><div class="metric-icon sage">◉</div><div><h2>Eye movement</h2><p>Fine-tune how the cursor follows your gaze.</p></div><label class="switch"><input type="checkbox" checked><span></span><em class="sr-only">Enable eye movement</em></label></div><div class="setting-row range-row"><div><strong>Cursor sensitivity</strong><p>How quickly the cursor responds</p></div><div class="range-control"><input type="range" min="1" max="100" value="68" data-setting="sensitivity"><output>68%</output></div></div><div class="setting-row"><div><strong>Stabilize cursor</strong><p>Reduce small, unintentional movements</p></div><label class="switch"><input type="checkbox" checked><span></span><em class="sr-only">Stabilize cursor</em></label></div></section>
+            <section class="surface setting-group"><div class="setting-heading"><div class="metric-icon sand">◌</div><div><h2>Blink actions</h2><p>Choose how blinks help you select.</p></div><label class="switch"><input type="checkbox" checked><span></span><em class="sr-only">Enable blink actions</em></label></div><div class="setting-row range-row"><div><strong>Blink hold time</strong><p>How long to hold a blink to select</p></div><div class="range-control"><input type="range" min="3" max="20" value="8" data-setting="blink"><output>0.8 sec</output></div></div><div class="setting-row"><div><strong>Double blink to right-click</strong><p>Two quick blinks perform a right-click</p></div><label class="switch"><input type="checkbox"><span></span><em class="sr-only">Double blink right-click</em></label></div></section>
+            <section class="surface setting-group"><div class="setting-heading"><div class="metric-icon lavender">⌖</div><div><h2>Head movement</h2><p>Use comfortable, small movements to navigate.</p></div><label class="switch"><input type="checkbox" checked><span></span><em class="sr-only">Enable head movement</em></label></div><div class="setting-row"><div><strong>Movement response</strong><p>Choose a comfortable pace</p></div><select aria-label="Movement response"><option>Gentle</option><option>Balanced</option><option>Responsive</option></select></div></section>
+            <section class="surface setting-group"><div class="setting-heading"><div class="metric-icon blue">♡</div><div><h2>On-screen help button</h2><p>Keep an easy way to ask your circle for help.</p></div><label class="switch"><input type="checkbox" checked><span></span><em class="sr-only">Show help button</em></label></div><div class="setting-row"><div><strong>Button position</strong><p>Where it appears on your screen</p></div><select aria-label="Help button position"><option>Bottom right</option><option>Bottom left</option><option>Top right</option></select></div></section>
+          </div><aside class="surface settings-aside"><div class="aside-icon">✳</div><h3>Made to adjust</h3><p>Try a setting and see how it feels. You can always change it again.</p><div class="change-note"><span>◷</span><span><strong>Changes are logged</strong><small>Every update appears in your shared activity log.</small></span></div><button class="text-button" data-view="logs">View activity log <span>→</span></button></aside></div>
+        </section>
+
+
+        <section class="view" id="view-logs">
+          <div class="page-intro logs-intro"><div><p class="eyebrow">OPEN AND TRANSPARENT</p><h1>Activity log</h1><p class="muted">A shared record of actions and changes in your care space.</p></div><button class="button soft" id="export-logs">↓ <span>Export JSON</span></button></div>
+          <div class="log-summary"><div><strong>Today’s activity</strong><span>Every click and setting change is time-stamped in the full app.</span></div><div class="summary-stat"><b id="event-count">6</b><small>events today</small></div></div>
+          <div class="log-filters"><button class="filter active" data-category="all">All activity <span>6</span></button><button class="filter" data-category="computer">Computer actions</button><button class="filter" data-category="settings">Settings</button><button class="filter" data-category="privacy">Access &amp; privacy</button><select aria-label="Filter by date"><option>Today, Nov 14</option><option>Last 7 days</option><option>All activity</option></select></div>
+          <div class="surface log-table"><div class="log-table-head"><span>ACTIVITY</span><span>TIME</span><span>SOURCE</span></div><div id="log-entries"><article class="log-entry"><span class="log-event"><i class="event-icon click-event">↖</i><span><strong>Left click</strong><small>Computer action · Button activated</small></span></span><time>10:42:18 AM</time><span class="source-tag">Laptop</span></article><article class="log-entry"><span class="log-event"><i class="event-icon setting-event">☷</i><span><strong>Cursor sensitivity changed</strong><small>Setting · 65% → 68%</small></span></span><time>10:38:04 AM</time><span class="source-tag phone-tag">Phone</span></article><article class="log-entry"><span class="log-event"><i class="event-icon click-event">↗</i><span><strong>Right click</strong><small>Computer action · Context menu opened</small></span></span><time>10:31:52 AM</time><span class="source-tag">Laptop</span></article><article class="log-entry"><span class="log-event"><i class="event-icon privacy-event">♧</i><span><strong>Camera access request approved</strong><small>Privacy · Video call requested</small></span></span><time>10:20:11 AM</time><span class="source-tag phone-tag">Phone</span></article><article class="log-entry"><span class="log-event"><i class="event-icon click-event">⌁</i><span><strong>Cursor moved</strong><small>Computer action · 4.2 seconds</small></span></span><time>10:16:07 AM</time><span class="source-tag">Laptop</span></article><article class="log-entry"><span class="log-event"><i class="event-icon click-event">◉</i><span><strong>Double blink</strong><small>Gesture · Select action</small></span></span><time>10:12:33 AM</time><span class="source-tag">Laptop</span></article></div><div class="log-more"><button class="text-button" id="show-more">Show earlier activity <span>↓</span></button><p>Entries are read-only. Enter the account password to request log deletion.</p></div></div>
+          <div class="export-note"><span>♧</span><span><strong>Your records stay yours.</strong> Activity can be viewed here or downloaded as a JSON file.</span><button class="text-button" data-open="delete-modal">Request deletion</button></div>
+        </section>
+
+        <section class="view" id="view-guide">
+          <div class="page-intro"><p class="eyebrow">HERE TO HELP</p><h1>Instructions</h1><p class="muted">A gentle guide to the tools in your care space.</p></div>
+          <div class="guide-layout"><div class="guide-list surface"><p class="eyebrow">GETTING STARTED</p><button class="guide-link selected"><span class="guide-number">01</span><span><strong>Getting to know your dashboard</strong><small>Connection, controls, and help</small></span><span>→</span></button><button class="guide-link"><span class="guide-number">02</span><span><strong>Using eye movement</strong><small>Move and select comfortably</small></span><span>→</span></button><button class="guide-link"><span class="guide-number">03</span><span><strong>Blink actions</strong><small>Select with a comfortable blink</small></span><span>→</span></button><button class="guide-link"><span class="guide-number">04</span><span><strong>Head movement</strong><small>Navigate with small movements</small></span><span>→</span></button><button class="guide-link"><span class="guide-number">05</span><span><strong>Asking for help</strong><small>Reach your circle when you need them</small></span><span>→</span></button><button class="guide-link"><span class="guide-number">06</span><span><strong>Privacy and video calls</strong><small>Approve camera and microphone access</small></span><span>→</span></button></div><article class="surface guide-article"><div class="guide-hero">✳</div><p class="eyebrow">YOUR HOME BASE</p><h2>Getting to know your dashboard</h2><p>Your dashboard gives you a quick view of your connection and movement controls. It’s a simple place to see what’s ready and reach the tools you use most.</p><h3>Your connection</h3><p>When your computer is connected, you’ll see its status near the top of Home. If it isn’t connected, your settings and help options will be ready when it reconnects.</p><h3>Quick access</h3><p>Use the navigation at the bottom of your phone to open Settings, your Activity log, or Instructions. Tap <b>Ask for help</b> whenever you want to let your circle know you need them.</p><div class="guide-tip"><span>✦</span><span><strong>Take your time.</strong> Settings can be adjusted to what feels comfortable for you.</span></div><button class="button soft">Next: Eye movement <span>→</span></button></article></div>
+        </section>
+      </div>
+      <nav class="bottom-nav" aria-label="Main navigation">
+        <button class="bottom-item active" data-view="home"><span>⌂</span><small>Home</small></button><button class="bottom-item" data-view="settings"><span>☷</span><small>Settings</small></button><button class="bottom-item" data-view="logs"><span>◷</span><small>Activity</small></button><button class="bottom-item" data-view="guide"><span>ⓘ</span><small>Guide</small></button>
+      </nav>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="camera-modal" hidden><section class="modal" role="dialog" aria-modal="true" aria-labelledby="camera-title"><button class="modal-close" data-close aria-label="Close">×</button><div class="modal-icon camera-icon">◉</div><p class="eyebrow">YOUR PRIVACY COMES FIRST</p><h2 id="camera-title">Request a video call</h2><p>Your calling software will ask to use the camera and microphone. They stay off until you approve access.</p><div class="permission-row"><span>▣</span><span><strong>Camera</strong><small>Approval needed before it turns on</small></span><b>Off</b></div><div class="permission-row"><span>◖</span><span><strong>Microphone</strong><small>Approval needed before it turns on</small></span><b>Off</b></div><button class="button primary full" id="send-call-request">Send call request <span>→</span></button><small class="modal-footnote">You can say no or end access at any time.</small></section></div>
+  <div class="modal-backdrop" id="delete-modal" hidden><section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="delete-title"><button class="modal-close" data-close aria-label="Close">×</button><div class="modal-icon delete-icon">⌑</div><p class="eyebrow">PROTECT YOUR RECORDS</p><h2 id="delete-title">Request log deletion</h2><p>Enter the account password to continue. This is a visual prototype; no log data will be deleted.</p><label for="delete-password">Account password</label><input id="delete-password" type="password" placeholder="Enter password"><button class="button primary full" id="confirm-delete">Continue <span>→</span></button></section></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

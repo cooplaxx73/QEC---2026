@@ -1,0 +1,4 @@
+{
+  // Purpose: Let Live Server accept connections from other devices on the local Wi-Fi network.
+  "liveServer.settings.host": "0.0.0.0"
+}
