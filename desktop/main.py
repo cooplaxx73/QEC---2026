@@ -9,6 +9,8 @@ Flow for every camera frame:
 
 Run with:  python main.py
 Press F8 at any time to pause or resume eye control, and F9 to quit.
+Moving the real mouse also takes over: eye control lets go until the
+mouse has been still for a moment.
 
 Libraries:
 - PySide6 (Qt for Python) for windows and timers: https://doc.qt.io/qtforpython-6/
@@ -17,11 +19,14 @@ Libraries:
 Written with the assistance of Claude Code (Anthropic).
 """
 
+import math
 import sys
+import threading
 import time
+from collections import deque
 
 from pynput import keyboard, mouse
-from PySide6.QtCore import QObject, QPoint, QThread, QTimer, Signal
+from PySide6.QtCore import QObject, QPoint, QPointF, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -31,7 +36,7 @@ from calibration import CalibrationScreen
 from camera import FaceTracker
 from caregiver_link import CaregiverLink
 from config import apply_changes, load_settings, save_settings
-from gaze import (GazeMapper, OneEuroFilter, eyes_closed_amount, face_size,
+from gaze import (GazeMapper, GazeSmoother, eyes_closed_amount, face_size,
                   gaze_features)
 from keyboard import OnScreenKeyboard
 from lighting import LowLightHelper
@@ -44,14 +49,39 @@ from zoom import LeanDetector, ZoomView
 FREEZE_AFTER_BLINK_SECONDS = 0.25  # eyes need a moment to settle after opening
 GOOD_CALIBRATION = 0.07            # expected error below 7% of the screen
 
+# The camera gives about 30 gaze readings a second. Moving the cursor only
+# that often looks jerky, so a fast timer glides it towards the latest one.
+GLIDE_TIMER_MILLISECONDS = 8       # about 120 small moves a second
+GLIDE_SECONDS = 0.05               # how quickly the cursor catches up
 
-def play_click_sound() -> None:
-    """A short, high beep. Different from the lower system beep of a call."""
+# The gaze drifts as the eyelids start to close. A click goes to where the
+# patient was looking this long before the blink began.
+LOOK_BACK_SECONDS = 0.25
+
+# The real mouse wins: if it moves, eye control lets go for this long.
+MOUSE_HOLD_SECONDS = 2.0
+MOUSE_MOVED_PIXELS = 4             # smaller differences are just rounding
+
+
+def play_tone(hertz: int, milliseconds: int) -> None:
+    """A short beep, played in the background so the cursor never pauses."""
     try:
         import winsound  # part of Python, but only on Windows
-        winsound.Beep(1200, 60)  # 1200 hertz for 60 milliseconds
     except ImportError:
         QApplication.beep()
+        return
+    threading.Thread(
+        target=winsound.Beep, args=(hertz, milliseconds), daemon=True).start()
+
+
+def play_ready_sound() -> None:
+    """Low and soft: the eyes have been closed long enough, open them to click."""
+    play_tone(700, 40)
+
+
+def play_click_sound() -> None:
+    """Higher: the click went through."""
+    play_tone(1200, 60)
 
 
 class CameraThread(QThread):
@@ -96,13 +126,25 @@ class EyeControl(QObject):
 
         # Eye tracking parts
         self.mapper = GazeMapper()
-        self.smoother = OneEuroFilter(self.settings.cursor_smoothing)
+        self.smoother = GazeSmoother(self.settings.cursor_smoothing)
         self.clicker = BlinkClicker()
         self.lean = LeanDetector()
         self.mouse = mouse.Controller()
         self.paused = False
         self.frozen_until = 0.0
         self.resting_face_size = None  # face size at normal sitting distance
+
+        # Cursor movement
+        self.target = None             # where the eyes say the cursor should be
+        self.position = QPointF()      # where the cursor is while gliding there
+        self.placed = None             # where this program last put the cursor
+        self.mouse_until = 0.0         # the real mouse is in charge until then
+        self.last_glide = time.monotonic()
+        self.recent_targets = deque(maxlen=120)  # (time, target) for a few seconds
+        self.glide_timer = QTimer(self, interval=GLIDE_TIMER_MILLISECONDS,
+                                  timeout=self.glide_cursor)
+        self.glide_timer.setTimerType(Qt.PreciseTimer)
+        self.glide_timer.start()
 
         # Helpers
         self.log = ActivityLog()
@@ -119,10 +161,9 @@ class EyeControl(QObject):
         self.keyboard.key_typed.connect(lambda: self.record("key"))
         self.buttons.keyboard_clicked.connect(self.keyboard.toggle)
 
-        # Settings has four tabs: Instructions, Controls, Recalibrate, Turn off.
-        self.settings_panel = SettingsPanel(self.settings)
+        # Settings has three tabs: Instructions, Recalibrate, Turn off.
+        self.settings_panel = SettingsPanel()
         self.buttons.settings_clicked.connect(self.settings_panel.toggle)
-        self.settings_panel.setting_changed.connect(self.on_patient_changed_setting)
         self.settings_panel.read_aloud_clicked.connect(
             lambda: self.speaker.say(" ".join(INSTRUCTIONS)))
         self.settings_panel.recalibrate_clicked.connect(self.start_calibration)
@@ -174,7 +215,8 @@ class EyeControl(QObject):
         error = self.mapper.fit(features, targets)
         self.record("calibration", error)
         self.resting_face_size = resting_face_size
-        self.smoother = OneEuroFilter(self.settings.cursor_smoothing)
+        self.smoother = GazeSmoother(self.settings.cursor_smoothing)
+        self.target = None
         self.buttons.show()
 
         if error <= GOOD_CALIBRATION:
@@ -216,10 +258,12 @@ class EyeControl(QObject):
         # Hold the cursor still during a blink and for a moment after it.
         if eyelids_moving or self.clicker.eyes_closed:
             self.frozen_until = now + FREEZE_AFTER_BLINK_SECONDS
+        if self.clicker.just_ready and not self.mouse_in_charge(now):
+            play_ready_sound()
         if wants_click:
-            self.click()
+            self.click(now)
         elif now >= self.frozen_until:
-            self.move_cursor(self.mapper.predict(features), now)
+            self.aim_cursor(self.mapper.predict(features), now)
 
         leaned_in = self.lean.update(
             face_size(face), self.resting_face_size,
@@ -229,25 +273,78 @@ class EyeControl(QObject):
             self.zoom.open_at_cursor(self.settings.zoom_factor)
             self.record("zoom")
 
-    def move_cursor(self, gaze_point: tuple[float, float], now: float) -> None:
-        """gaze_point is (x, y) with 0 = left/top and 1 = right/bottom."""
+    def aim_cursor(self, gaze_point: tuple[float, float], now: float) -> None:
+        """Set where the cursor should go. glide_cursor() takes it there.
+
+        gaze_point is (x, y) with 0 = left/top and 1 = right/bottom.
+        """
         x, y = gaze_point
         # Sensitivity stretches movement away from the screen centre, for
         # patients whose eye movement range has become smaller.
         gain = self.settings.cursor_sensitivity
         x = 0.5 + (x - 0.5) * gain
         y = 0.5 + (y - 0.5) * gain
-        x, y = self.smoother.update((x, y), now)
+        x, y = self.smoother.update((x, y))
         x = min(max(x, 0.0), 1.0)
         y = min(max(y, 0.0), 1.0)
 
         screen = self.app.primaryScreen().geometry()
-        QCursor.setPos(
-            screen.x() + int(x * (screen.width() - 1)),
-            screen.y() + int(y * (screen.height() - 1)),
+        self.target = QPointF(
+            screen.x() + x * (screen.width() - 1),
+            screen.y() + y * (screen.height() - 1),
         )
+        self.recent_targets.append((now, self.target))
 
-    def click(self) -> None:
+    def glide_cursor(self) -> None:
+        """Runs about 120 times a second: move the cursor a little closer
+        to the target, unless the real mouse is being used."""
+        now = time.monotonic()
+        actual = QCursor.pos()
+        # If the cursor is not where we left it, someone moved the mouse.
+        if (self.placed is not None
+                and (actual - self.placed).manhattanLength() > MOUSE_MOVED_PIXELS):
+            self.mouse_until = now + MOUSE_HOLD_SECONDS
+
+        waiting = (self.paused or self.target is None or self.calibration.isVisible()
+                   or now < self.frozen_until or self.mouse_in_charge(now))
+        if waiting:
+            # Leave the cursor alone, but remember where it is.
+            self.placed = actual
+            self.position = QPointF(actual)
+            self.last_glide = now
+            return
+
+        # Cover a share of the remaining distance. The share depends on the
+        # time since the last move, so the speed is the same on any computer.
+        share = 1 - math.exp(-(now - self.last_glide) / GLIDE_SECONDS)
+        self.last_glide = now
+        self.position += (self.target - self.position) * share
+        self.place_cursor(self.position.toPoint())
+
+    def place_cursor(self, point: QPoint) -> None:
+        """Move the cursor and remember that it was us, not the mouse."""
+        QCursor.setPos(point)
+        self.placed = QCursor.pos()
+
+    def mouse_in_charge(self, now: float) -> bool:
+        return now < self.mouse_until
+
+    def spot_before_blink(self):
+        """Where the patient was looking just before they began to blink."""
+        moment = self.clicker.last_started - LOOK_BACK_SECONDS
+        for time_stamp, target in reversed(self.recent_targets):
+            if time_stamp <= moment:
+                return target
+        return None
+
+    def click(self, now: float) -> None:
+        if self.mouse_in_charge(now):
+            return  # a helper is using the mouse: do not click for them
+        spot = self.spot_before_blink()
+        if spot is not None:
+            self.target = spot
+            self.position = QPointF(spot)
+            self.place_cursor(spot.toPoint())
         action = self.settings.blink_action
         button = mouse.Button.right if action == "right_click" else mouse.Button.left
         self.mouse.click(button, 2 if action == "double_click" else 1)
@@ -260,7 +357,9 @@ class EyeControl(QObject):
         self.frozen_until = time.monotonic() + 0.6
 
         def click_real_spot():
-            QCursor.setPos(target)
+            self.target = QPointF(target)
+            self.position = QPointF(target)
+            self.place_cursor(target)
             self.mouse.click(mouse.Button.left)
 
         # Wait a moment so the zoomed view has disappeared first.
@@ -276,13 +375,6 @@ class EyeControl(QObject):
     def read_notifications(self) -> None:
         messages = [message for _, message in self.notifications.newest()]
         self.speaker.say(" ".join(messages) or "No notifications.")
-
-    def on_patient_changed_setting(self, name: str, value) -> None:
-        """The patient changed something in the Controls tab of Settings."""
-        setattr(self.settings, name, value)
-        save_settings(self.settings)
-        self.smoother.set_smoothing(self.settings.cursor_smoothing)
-        self.record("settings_changed", note=f"patient set {name} to {value}")
 
     def ask(self, question: str, choices: list[str], on_choice) -> None:
         if self.popup is not None:
@@ -343,7 +435,6 @@ class EyeControl(QObject):
             return
         save_settings(self.settings)
         self.smoother.set_smoothing(self.settings.cursor_smoothing)
-        self.settings_panel.refresh()
         changes = ", ".join(
             f"{name.replace('_', ' ')} is now {value}" for name, value in applied.items())
         self.record("settings_changed", note=changes)

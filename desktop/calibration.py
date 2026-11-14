@@ -18,8 +18,10 @@ import time
 
 import numpy as np
 from PySide6.QtCore import QPointF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QWidget
+
+import theme
 
 # Dot positions as a fraction of the screen (0 = left/top, 1 = right/bottom).
 # A 3 x 3 grid near the edges, plus 4 dots in between for extra detail.
@@ -48,7 +50,7 @@ class CalibrationScreen(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        self.setStyleSheet("background: black;")
+        self.setStyleSheet(f"background: {theme.CREAM};")
         self.setCursor(Qt.BlankCursor)
         self.repaint_timer = QTimer(self, interval=30, timeout=self.update)
 
@@ -94,22 +96,28 @@ class CalibrationScreen(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        painter.setPen(QColor("white"))
-        painter.setFont(QFont("Arial", 22))
+        painter.setPen(QColor(theme.INK))
+        painter.setFont(theme.font(theme.SERIF, 24))
+        painter.drawText(
+            self.rect().adjusted(0, 0, 0, -96), Qt.AlignHCenter | Qt.AlignBottom,
+            "Look at the dot and keep your head still",
+        )
+        painter.setPen(QColor(theme.MUTED))
+        painter.setFont(theme.font(theme.SANS, 13))
         painter.drawText(
             self.rect().adjusted(0, 0, 0, -60), Qt.AlignHCenter | Qt.AlignBottom,
-            "Look at the dot and keep your head still",
+            f"Dot {self.dot_index + 1} of {len(DOTS)}",
         )
 
         x, y = DOTS[self.dot_index]
         centre = QPointF(x * self.width(), y * self.height())
-        # The ring shrinks while we wait, then the dot turns green to record.
+        # The ring shrinks while we wait, then the dot turns dark green to record.
         elapsed = time.monotonic() - self.dot_started
         waiting = max(0.0, 1 - elapsed / SETTLE_SECONDS)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(255, 255, 255, 70))
+        painter.setBrush(QColor(theme.SAGE_DEEP))
         painter.drawEllipse(centre, 18 + 40 * waiting, 18 + 40 * waiting)
-        painter.setBrush(QColor("#ffcc00") if waiting > 0 else QColor("#33dd66"))
+        painter.setBrush(QColor(theme.LIME if waiting > 0 else theme.GREEN))
         painter.drawEllipse(centre, 18, 18)
-        painter.setBrush(QColor("black"))
+        painter.setBrush(QColor(theme.INK if waiting > 0 else theme.WHITE))
         painter.drawEllipse(centre, 4, 4)

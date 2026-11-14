@@ -7,19 +7,15 @@ How it works:
 2. During calibration the patient looks at dots we know the position of.
    GazeMapper.fit() learns the link between the numbers and the screen
    using ridge regression (a least-squares line fit that resists noise).
-3. OneEuroFilter smooths the result so the cursor does not shake.
+3. GazeSmoother steadies the result so the cursor does not shake.
 
 Sources:
 - MediaPipe face landmark numbers (iris 468 and 473, eye corners 33, 133,
   362, 263): https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker
-- One Euro Filter: Casiez, Roussel and Vogel, CHI 2012.
-  https://gery.casiez.net/1euro/
 - NumPy: https://numpy.org
 
 Written with the assistance of Claude Code (Anthropic).
 """
-
-import math
 
 import numpy as np
 
@@ -144,43 +140,38 @@ class GazeMapper:
         return np.hstack([scaled, ones])
 
 
-class OneEuroFilter:
-    """Smooths a noisy (x, y) signal.
+class GazeSmoother:
+    """Steadies a noisy (x, y) gaze point.
 
-    Slow movements are smoothed a lot (steady cursor when reading) and fast
-    movements only a little (no lag when looking across the screen).
+    Eyes do two things: rest on a spot, or jump to a new one. So:
+    - a reading close to the cursor is probably shake, and only nudges it;
+    - a reading far from the cursor is a real look elsewhere, and the
+      cursor goes there almost at once.
+
+    Each reading is first replaced by the middle one of the last three,
+    which removes single wild readings.
     """
 
     def __init__(self, smoothing: float = 0.5):
         self.set_smoothing(smoothing)
-        self.speed_gain = 1.0       # how quickly smoothing relaxes with speed
-        self.previous = None
-        self.previous_speed = np.zeros(2)
-        self.previous_time = None
+        self.recent = []      # the last three raw readings
+        self.position = None  # the steadied point
 
     def set_smoothing(self, smoothing: float) -> None:
         """0 = fast and shaky, 1 = slow and steady."""
-        self.min_cutoff = 0.1 + 1.5 * (1 - smoothing) ** 2  # in hertz
+        # Readings closer than this (as a fraction of the screen) count as shake.
+        self.shake_distance = 0.04 + 0.12 * smoothing
+        # How far the cursor follows one reading that is only shake (0 to 1).
+        self.steady_follow = 0.03 + 0.2 * (1 - smoothing) ** 2
 
-    @staticmethod
-    def _blend_amount(cutoff, dt):
-        time_constant = 1 / (2 * math.pi * cutoff)
-        return 1 / (1 + time_constant / dt)
+    def update(self, point: tuple[float, float]) -> tuple[float, float]:
+        self.recent = (self.recent + [point])[-3:]
+        middle = np.median(np.array(self.recent), axis=0)
+        if self.position is None:
+            self.position = middle
 
-    def update(self, point: tuple[float, float], now: float) -> tuple[float, float]:
-        point = np.array(point)
-        if self.previous is None:
-            self.previous, self.previous_time = point, now
-            return tuple(point)
-
-        dt = max(now - self.previous_time, 1e-3)
-        # Smooth the speed first, then use it to choose how much to smooth.
-        speed = (point - self.previous) / dt
-        blend = self._blend_amount(1.0, dt)
-        speed = blend * speed + (1 - blend) * self.previous_speed
-        cutoff = self.min_cutoff + self.speed_gain * np.abs(speed)
-        blend = self._blend_amount(cutoff, dt)
-        smoothed = blend * point + (1 - blend) * self.previous
-
-        self.previous, self.previous_speed, self.previous_time = smoothed, speed, now
-        return float(smoothed[0]), float(smoothed[1])
+        distance = float(np.linalg.norm(middle - self.position))
+        how_far = min(1.0, distance / self.shake_distance)
+        follow = self.steady_follow + (1 - self.steady_follow) * how_far ** 3
+        self.position = self.position + follow * (middle - self.position)
+        return float(self.position[0]), float(self.position[1])

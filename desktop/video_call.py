@@ -13,9 +13,10 @@ Written with the assistance of Claude Code (Anthropic).
 import cv2
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel
 
-from overlay import GREY, OVERLAY_FLAGS, PANEL_STYLE, make_button, screen_area
+import theme
+from overlay import Card, make_button, screen_area
 
 VIDEO_WIDTH, VIDEO_HEIGHT = 360, 270
 
@@ -27,24 +28,25 @@ def frame_to_jpeg(frame) -> bytes:
     return jpeg.tobytes()
 
 
-class VideoWindow(QWidget):
+class VideoWindow(Card):
     end_clicked = Signal()
 
     def __init__(self):
-        super().__init__(None, OVERLAY_FLAGS)
-        self.setStyleSheet(PANEL_STYLE)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        super().__init__()
+        self.rows.setContentsMargins(12, 12, 12, 12)
+        self.rows.setSpacing(12)
         self.picture = QLabel("Connecting to caregiver...")
         self.picture.setFixedSize(VIDEO_WIDTH, VIDEO_HEIGHT)
         self.picture.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.picture)
-        layout.addWidget(make_button(
-            "End call", GREY, self.end_clicked.emit, VIDEO_WIDTH, 80))
+        self.picture.setStyleSheet(
+            f"background: {theme.INK}; color: {theme.WHITE}; border-radius: 14px;")
+        self.rows.addWidget(self.picture)
+        self.rows.addWidget(make_button(
+            "End call", "danger", self.end_clicked.emit, VIDEO_WIDTH, 80))
         self.adjustSize()
-        # Top-right corner, away from the two overlay buttons.
+        # Top-right corner, away from the overlay buttons.
         area = screen_area()
-        self.move(area.right() - self.width() - 10, area.top() + 10)
+        self.move(area.right() - self.width() + 8, area.top() - 8)
 
     def show_frame(self, jpeg: bytes) -> None:
         pixmap = QPixmap()

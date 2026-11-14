@@ -16,10 +16,11 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QHBoxLayout, QPushButton, QSizePolicy,
                                QVBoxLayout, QWidget)
 
+import theme
 from overlay import OVERLAY_FLAGS, screen_area
 
 KEY_HEIGHT = 92
-BUTTON_BAR_WIDTH = 150  # space left free for the two overlay buttons
+BUTTON_BAR_WIDTH = 176  # space left free for the overlay buttons
 
 LAYOUTS = {
     "letters": [
@@ -36,6 +37,10 @@ LAYOUTS = {
     ],
 }
 
+# Keys that do something other than type a character are tinted, so the
+# letters are easy to tell apart from them.
+ACTION_KEYS = {"Back", "Enter", "Shift", "123", "ABC", "Hide"}
+
 # Keys that are not a single character.
 SPECIAL_KEYS = {"Back": Key.backspace, "Enter": Key.enter, "Space": Key.space}
 
@@ -45,17 +50,21 @@ class OnScreenKeyboard(QWidget):
 
     def __init__(self):
         super().__init__(None, OVERLAY_FLAGS)
-        self.setStyleSheet("background: #101820;")
+        self.setObjectName("keyboard")
+        self.setAttribute(Qt.WA_StyledBackground)
+        self.setStyleSheet(
+            f"#keyboard {{ background: {theme.CREAM};"
+            f" border-top: 1px solid {theme.SAGE_DEEP}; }}")
         self.typist = Controller()
         self.shift_on = False
         self.rows = QVBoxLayout(self)
-        self.rows.setSpacing(6)
-        self.rows.setContentsMargins(8, 8, 8, 8)
+        self.rows.setSpacing(8)
+        self.rows.setContentsMargins(12, 12, 12, 12)
         self.show_layout("letters")
 
         # Dock along the bottom, leaving room for the overlay buttons.
         area = screen_area()
-        height = 4 * KEY_HEIGHT + 40
+        height = 4 * KEY_HEIGHT + 48
         self.setGeometry(
             area.x(), area.bottom() - height,
             area.width() - BUTTON_BAR_WIDTH, height,
@@ -72,7 +81,7 @@ class OnScreenKeyboard(QWidget):
 
         for keys in LAYOUTS[name]:
             row = QHBoxLayout()
-            row.setSpacing(6)
+            row.setSpacing(8)
             for key in keys:
                 row.addWidget(self.make_key(key), 6 if key == "Space" else 1)
             self.rows.addLayout(row)
@@ -83,13 +92,14 @@ class OnScreenKeyboard(QWidget):
         button.setFixedHeight(KEY_HEIGHT)
         button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         button.setFocusPolicy(Qt.NoFocus)
-        highlighted = key == "Shift" and self.shift_on
-        button.setStyleSheet(
-            f"QPushButton {{ background: {'#1565c0' if highlighted else '#263238'};"
-            " color: white; font-size: 26px; font-weight: bold;"
-            " border: 2px solid #90a4ae; border-radius: 10px; }"
-            "QPushButton:hover { border: 5px solid #ffeb3b; }"
-        )
+        if key == "Enter" or (key == "Shift" and self.shift_on):
+            kind = "primary"
+        elif key in ACTION_KEYS:
+            kind = "secondary"
+        else:
+            kind = "plain"
+        font_size = 28 if len(key) == 1 else 22
+        button.setStyleSheet(theme.button_style(kind, font_size, radius=14))
         button.clicked.connect(lambda checked=False, k=key: self.press(k))
         return button
 
