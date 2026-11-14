@@ -101,6 +101,22 @@ function renderLogs() {
   }
 }
 
+function renderInsights() {
+  const totals = activity.reduce((counts, entry) => {
+    counts[entry[6]] = (counts[entry[6]] || 0) + 1;
+    return counts;
+  }, { computer: 0, settings: 0, privacy: 0 });
+  const total = activity.length || 1;
+  const computerEnd = totals.computer / total * 100;
+  const settingsEnd = computerEnd + totals.settings / total * 100;
+  document.querySelector('#category-donut').style.background =
+    `conic-gradient(#78977d 0 ${computerEnd}%, #c9b88f ${computerEnd}% ${settingsEnd}%, #a8bdba ${settingsEnd}% 100%)`;
+  document.querySelector('#donut-total').textContent = String(activity.length);
+  document.querySelector('#count-computer').textContent = String(totals.computer);
+  document.querySelector('#count-settings').textContent = String(totals.settings);
+  document.querySelector('#count-privacy').textContent = String(totals.privacy);
+}
+
 function appendActivity(title, detail, source = 'Phone', iconClass = 'setting-event', glyph = '•') {
   const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const category = iconClass === 'setting-event' ? 'settings' : iconClass === 'privacy-event' ? 'privacy' : 'computer';
@@ -108,6 +124,7 @@ function appendActivity(title, detail, source = 'Phone', iconClass = 'setting-ev
   document.querySelector('#event-count').textContent = String(activity.length);
   document.querySelector('.filter[data-category="all"] span').textContent = String(activity.length);
   renderLogs();
+  renderInsights();
 }
 
 document.querySelectorAll('[data-setting]').forEach(control => {
@@ -171,4 +188,5 @@ document.querySelectorAll('.guide-link').forEach(item => item.addEventListener('
 }));
 
 renderLogs();
+renderInsights();
 
