@@ -35,9 +35,6 @@ class Settings:
     click_signal: str = "blink"
     click_signal_threshold: float = 0.4   # how strong it must be (0 to 1)
 
-    # Choose our own buttons by following a moving dot (follow_dot.py)
-    follow_dot_enabled: bool = False
-
     # Zoom by leaning towards the screen
     zoom_enabled: bool = True
     zoom_lean_ratio: float = 1.18     # face must look this much bigger

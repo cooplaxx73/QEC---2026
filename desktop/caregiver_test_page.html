@@ -37,7 +37,6 @@
     <option value="pucker">Pucker lips</option>
   </select></div>
 <div><label>Movement strength (0 to 1)</label><input id="click_signal_threshold" value="0.4"></div>
-<div><label>Follow-the-dot buttons</label><input id="follow_dot_enabled" type="checkbox" style="width:auto"></div>
 <button onclick="sendSettings()">Send settings</button>
 <button onclick="command('ability_test')">Run ability test on patient</button>
 
@@ -71,7 +70,6 @@ function sendSettings() {
     changes[name] = Number(document.getElementById(name).value);
   }
   changes.click_signal = document.getElementById("click_signal").value;
-  changes.follow_dot_enabled = document.getElementById("follow_dot_enabled").checked;
   post("/caregiver/settings", { changes: changes, by: "Test caregiver" });
 }
 

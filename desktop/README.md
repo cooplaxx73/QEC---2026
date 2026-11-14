@@ -8,7 +8,6 @@ Lets a person with ALS control their computer with their eyes, using a normal we
 | Left click | Close both eyes for about half a second |
 | Zoom | Look at a target and lean towards the screen. Sit back, then click in the zoomed view |
 | Type | Use the on-screen keyboard |
-| Choose a button without blinking | Follow the dot that circles it with your eyes (when follow-the-dot is on) |
 | Click with another movement | Settings, then the Ability test tab, finds your most reliable face movement |
 | Pause eye control | Press F8 (for a helper) |
 | Use the mouse | Just move it. Eye movement, blink clicks and lean-to-zoom pause, and return 2 seconds after the mouse stops |
@@ -68,7 +67,6 @@ The tracking tests run without opening a camera or moving the mouse.
 | `overlay.py` | The four icon buttons, tabbed settings, notifications, ringing call pop-up |
 | `keyboard.py` | On-screen keyboard |
 | `zoom.py` | Lean-forward zoom |
-| `follow_dot.py` | Choose a button by following its moving dot |
 | `ability_test.py` | Finds the face movement the patient can make most reliably |
 | `lighting.py` | Dark-room detection and brightness boost |
 | `speech.py` | Read-aloud |
@@ -90,15 +88,9 @@ change settings, request a video call and show both activity logs.
 Setting names the caregiver app can change are the field names in `config.py`,
 for example `{"changes": {"click_hold_seconds": 0.8}, "by": "Sam"}`.
 
-## Two ways to select that are not blink-to-click
+## Ability test: click with the movement that works best
 
-**Follow the dot.** A dot circles every button on our own windows. The
-program does not work out where the patient is looking. It checks whether
-their eyes are moving the same way as one of the dots, which a webcam
-measures far better. Following a dot for about a second and a half presses
-its button. Turn it on with the setting `follow_dot_enabled`.
-
-**Ability test.** ALS affects different muscles in different people and
+ALS affects different muscles in different people and
 changes over time. The test asks for five movements (close eyes, raise
 eyebrows, open mouth, smile, pucker lips), three times each, and scores
 each one on whether it happened, how strong and fast it was, whether it
@@ -106,8 +98,8 @@ also fires by accident during other movements, and whether it tires. The
 patient can then click with the best one (setting `click_signal`). Scores
 go in the progression log.
 
-The caregiver can change both settings and start the test remotely:
-`POST /caregiver/settings` with `{"changes": {"follow_dot_enabled": true, "click_signal": "eyebrows"}}`
+The caregiver can change the setting and start the test remotely:
+`POST /caregiver/settings` with `{"changes": {"click_signal": "eyebrows"}}`
 and `POST /caregiver/command` with `{"command": "ability_test"}`.
 
 ## Privacy
@@ -126,8 +118,6 @@ and `POST /caregiver/command` with `{"command": "ability_test"}`.
 - pyttsx3 (MPL 2.0): https://pyttsx3.readthedocs.io
 - screen-brightness-control (MIT): https://github.com/Crozzers/screen_brightness_control
 - Requests (Apache 2.0): https://requests.readthedocs.io
-- Follow-the-dot method: Vidal, Bulling and Gellersen, "Pursuits: Spontaneous Interaction with Displays based on Smooth Pursuit Eye Movement and Moving Targets", UbiComp 2013. https://doi.org/10.1145/2493432.2493477
-- Dots circling a target: Esteves, Velloso, Bulling and Gellersen, "Orbits: Gaze Interaction for Smart Watches using Smooth Pursuit Eye Movements", UIST 2015. https://doi.org/10.1145/2807442.2807499
 
 ## AI assistance
 

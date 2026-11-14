@@ -6,7 +6,6 @@ Flow for every camera frame:
                    blink.py    ->  click
                    zoom.py     ->  zoom when leaning in
                    lighting.py ->  brighten the screen in a dark room
-                   follow_dot.py -> choose a button by following its dot
 
 ability_test.py finds which face movement should do the clicking.
 
@@ -41,7 +40,6 @@ from calibration import CalibrationScreen
 from camera import FaceTracker
 from caregiver_link import CaregiverLink
 from config import apply_changes, load_settings, save_settings
-from follow_dot import DotLayer
 from gaze import (GazeMapper, GazeSmoother, eyes_closed_amount, face_size,
                   gaze_features)
 from keyboard import OnScreenKeyboard
@@ -195,9 +193,7 @@ class EyeControl(QObject):
         self.calibration = CalibrationScreen()
         self.calibration.finished.connect(self.on_calibration_finished)
 
-        # Follow-the-dot selection and the ability test.
-        self.dots = DotLayer()
-        self.dots.chosen.connect(self.on_dot_chosen)
+        # The ability test finds which face movement should click.
         self.ability_test = AbilityTestScreen()
         self.ability_test.finished.connect(self.on_ability_test_finished)
         self.ability_test.say.connect(self.speaker.say)
@@ -231,13 +227,11 @@ class EyeControl(QObject):
         self.smoother = GazeSmoother(self.settings.cursor_smoothing)
         self.lean = LeanDetector()
         self.frozen_until = 0.0
-        self.dots.forget()
 
     def hide_windows(self) -> None:
         for window in (self.buttons, self.settings_panel, self.notifications,
                        self.keyboard):
             window.hide()
-        self.dots.stop()
 
     def start_calibration(self) -> None:
         self.reset_tracking()
@@ -252,7 +246,6 @@ class EyeControl(QObject):
         self.resting_face_size = resting_face_size
         self.reset_tracking()
         self.buttons.show()
-        self.show_dots_if_wanted()
 
         if error <= GOOD_CALIBRATION:
             self.announce("Ready. " + self.how_to_click())
@@ -315,11 +308,6 @@ class EyeControl(QObject):
             self.click(now)
         elif now >= self.frozen_until:
             self.aim_cursor(gaze_point, now)
-        if self.settings.follow_dot_enabled and not eyelids_moving:
-            # The dots need the raw eye movement, before any smoothing.
-            screen = self.app.primaryScreen().geometry()
-            self.dots.add_gaze(screen.x() + gaze_point[0] * screen.width(),
-                               screen.y() + gaze_point[1] * screen.height(), now)
 
         leaned_in = self.lean.update(
             face_size(face), self.resting_face_size,
@@ -422,26 +410,6 @@ class EyeControl(QObject):
         # Wait a moment so the zoomed view has disappeared first.
         QTimer.singleShot(200, click_real_spot)
 
-    # ----- follow the dot -----
-
-    def show_dots_if_wanted(self) -> None:
-        """Dots show only while eye control is running normally."""
-        wanted = (self.settings.follow_dot_enabled and self.mapper.ready
-                  and not self.paused and not self.calibration.isVisible()
-                  and not self.ability_test.isVisible())
-        if wanted and not self.dots.isVisible():
-            self.dots.start()
-        elif not wanted:
-            self.dots.stop()
-
-    def on_dot_chosen(self, button) -> None:
-        """The patient followed a button's dot: press that button."""
-        if self.paused or self.mouse_in_charge(time.monotonic()):
-            return
-        button.click()
-        play_click_sound()
-        self.record("dot_select", note=button.text() or button.toolTip())
-
     # ----- ability test -----
 
     def how_to_click(self) -> str:
@@ -463,7 +431,6 @@ class EyeControl(QObject):
         self.record("ability_test", results[0]["score"], note=scores)
         self.reset_tracking()
         self.buttons.show()
-        self.show_dots_if_wanted()
         self.ability_results = AbilityResults(results, self.settings.click_signal)
         self.ability_results.chosen.connect(self.use_click_movement)
 
@@ -551,7 +518,6 @@ class EyeControl(QObject):
         save_settings(self.settings)
         self.smoother.set_smoothing(self.settings.cursor_smoothing)
         self.clicker = BlinkClicker()
-        self.show_dots_if_wanted()
         changes = ", ".join(
             f"{name.replace('_', ' ')} is now {value}" for name, value in applied.items())
         self.record("settings_changed", note=changes)
@@ -587,7 +553,6 @@ class EyeControl(QObject):
     def toggle_pause(self) -> None:
         self.paused = not self.paused
         self.reset_tracking()
-        self.show_dots_if_wanted()
         self.toast.show_message(
             "Eye control paused. Press F8 to resume." if self.paused
             else "Eye control resumed.")
