@@ -18,6 +18,7 @@ MAX_HOLD_SECONDS = 3.0  # closed longer than this = resting, not clicking
 class BlinkClicker:
     def __init__(self):
         self.closed_since = None  # time the eyes closed, or None if open
+        self.last_duration = 0.0  # length of the latest blink, for the log
 
     @property
     def eyes_closed(self) -> bool:
@@ -34,6 +35,6 @@ class BlinkClicker:
         # Eyes are open. Were they closed for the right length of time?
         if self.closed_since is None:
             return False
-        duration = now - self.closed_since
+        self.last_duration = now - self.closed_since
         self.closed_since = None
-        return hold_seconds <= duration <= MAX_HOLD_SECONDS
+        return hold_seconds <= self.last_duration <= MAX_HOLD_SECONDS
