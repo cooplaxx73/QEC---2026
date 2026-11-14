@@ -1,0 +1,107 @@
+<!doctype html>
+<!--
+  Simple caregiver test page served by stub_server.py.
+  It stands in for the real caregiver mobile app while testing the desktop.
+  Written with the assistance of Claude Code (Anthropic).
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caregiver test page</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 720px; margin: 20px auto; padding: 0 16px; }
+  button { font-size: 16px; padding: 10px 16px; margin: 4px 4px 4px 0; }
+  input { font-size: 16px; width: 80px; }
+  label { display: inline-block; width: 190px; }
+  pre { background: #f3f3f3; padding: 10px; max-height: 180px; overflow: auto; }
+  img, canvas { width: 240px; height: 180px; background: #222; }
+  #alert { background: #c62828; color: white; padding: 12px; font-size: 20px; display: none; }
+</style>
+</head>
+<body>
+<h2>Caregiver test page</h2>
+<div id="alert"></div>
+
+<h3>Patient settings</h3>
+<div><label>Click hold (seconds)</label><input id="click_hold_seconds" value="0.6"></div>
+<div><label>Cursor sensitivity</label><input id="cursor_sensitivity" value="1.0"></div>
+<div><label>Cursor smoothing (0 to 1)</label><input id="cursor_smoothing" value="0.5"></div>
+<button onclick="sendSettings()">Send settings</button>
+
+<h3>Video call: <span id="videoState">off</span></h3>
+<button onclick="video('request')">Request video</button>
+<button onclick="video('accept')">Accept</button>
+<button onclick="video('end')">End</button>
+<div>
+  <img id="patientVideo" alt="patient camera">
+  <canvas id="myVideo" width="320" height="240"></canvas>
+</div>
+
+<h3>Events</h3><pre id="events"></pre>
+<h3>Patient progression log</h3><pre id="patientLog"></pre>
+<h3>Caregiver audit log</h3><pre id="auditLog"></pre>
+
+<script>
+let lastId = 0;
+let videoOn = false;
+const canvas = document.getElementById("myVideo");
+const pen = canvas.getContext("2d");
+
+function post(path, data) {
+  return fetch(path, { method: "POST", body: JSON.stringify(data) });
+}
+
+function sendSettings() {
+  const changes = {};
+  for (const name of ["click_hold_seconds", "cursor_sensitivity", "cursor_smoothing"]) {
+    changes[name] = Number(document.getElementById(name).value);
+  }
+  post("/caregiver/settings", { changes: changes, by: "Test caregiver" });
+}
+
+function video(action) { post("/caregiver/video", { action: action }); }
+
+function showAlert(text) {
+  const box = document.getElementById("alert");
+  box.textContent = text;
+  box.style.display = "block";
+}
+
+async function poll() {
+  const events = await (await fetch("/caregiver/events?after=" + lastId)).json();
+  for (const event of events) {
+    lastId = event.id;
+    document.getElementById("events").textContent += JSON.stringify(event) + "\n";
+    if (event.type === "call") showAlert("The patient is calling you" + (event.video ? " (with video)" : ""));
+    if (event.type === "video_request") showAlert("The patient asks for a video call. Press Accept.");
+    if (event.type === "video_started") videoOn = true;
+    if (event.type === "video_ended") videoOn = false;
+    document.getElementById("videoState").textContent = videoOn ? "ON" : "off";
+  }
+  const logs = await (await fetch("/logs/patient")).json();
+  document.getElementById("patientLog").textContent = logs.slice(-12).map(JSON.stringify).join("\n");
+  const audit = await (await fetch("/logs/audit")).json();
+  document.getElementById("auditLog").textContent = audit.map(JSON.stringify).join("\n");
+}
+
+// During a call: show the patient's picture and send ours.
+// This test page sends a drawn placeholder instead of a real camera,
+// because the patient program is already using the laptop's webcam.
+function videoTick() {
+  if (!videoOn) return;
+  document.getElementById("patientVideo").src = "/patient/frame?t=" + Date.now();
+  pen.fillStyle = "#1565c0";
+  pen.fillRect(0, 0, 320, 240);
+  pen.fillStyle = "white";
+  pen.font = "24px Arial";
+  pen.fillText("Caregiver camera", 60, 110);
+  pen.fillText(new Date().toLocaleTimeString(), 105, 150);
+  canvas.toBlob(blob => fetch("/caregiver/frame", { method: "POST", body: blob }), "image/jpeg", 0.6);
+}
+
+setInterval(poll, 1000);
+setInterval(videoTick, 200);
+</script>
+</body>
+</html>

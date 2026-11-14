@@ -1,58 +1,72 @@
-# SignalSpeak · local website demo
+# SignalSpeak — integrated local demo
 
-Onboarding interface on the `web` branch. Requires Node.js 22+. No dependencies to install.
+Combines website `web` (52f549c), phone UI `app` (612755c), and desktop `action-implementation` (7d01be3) on `codex/integrated-demo`. Teammates' branches remain unchanged.
 
-## Run
+## Start the account server and browser phone dashboard
+
+Requires Node.js 22+. No Node packages to install.
 
 ```sh
+node scripts/package-desktop.mjs
 node server.mjs
 ```
 
-Open http://localhost:3000. The server binds only to this computer. Stop with Ctrl+C.
+- Website: http://localhost:3000
+- Phone dashboard (browser demo): http://localhost:3000/app/
 
-## Try it
+The server binds to this computer only. This is the laptop-browser phone demo; a physical phone cannot reach the laptop through localhost. Do not expose this local HTTP prototype as a public account service.
 
-1. Get started → Patient. Create an account with fictional details and accept privacy.
-2. Copy your patient ID from My account. Continue to the instructions for text and read-aloud.
-3. Sign out, create a caregiver account, and enter the patient ID to request a connection.
-4. Sign in as the patient and accept or decline the request. Accepted connections can be revoked.
-5. Sign in as the caregiver to see the status. Refresh the care circle to retrieve changes.
+## End-to-end demo
 
-General email/password login is separate from patient IDs. Caregivers can view approved connections using **View connected patients**. One caregiver can support multiple patients and multiple caregivers can support one patient. Selecting a patient never changes the logged-in identity.
+1. On the website, create a patient account using fictional information. Accept privacy. Choose whether to enable optional patient activity logging.
+2. Copy the patient ID. Sign out, create a separate caregiver account, and request a connection using the patient ID.
+3. Sign back in as the patient and accept the connection in My account.
+4. For simultaneous patient and caregiver sessions, use separate browser profiles or an incognito window. Tabs in one browser profile share the same login cookie.
+5. Open `/app/` as the caregiver. Select an approved patient. Change a supported setting and inspect its real audit entry. All control customization is in this phone dashboard, not the onboarding website.
+6. Prepare and pair the desktop below. It appears connected in the phone dashboard while polling the server. Offline settings are loaded at the next connection.
+7. Change blink hold time in the dashboard. The paired desktop receives the update and notifies the patient. Call Caregiver on the desktop sends a notification to the phone dashboard. Request a connection from the phone to send a desktop notification.
+8. Patient action logs appear only if the patient enabled logging at signup. Audit logs record settings changes and connection requests under the authenticated actor's identity.
+9. Revoke a caregiver connection on the website to block further access to that patient's settings, logs and events.
 
-**All control settings are managed in the phone app.** This website provides account setup, patient IDs, care connections, privacy acceptance, instructions with browser read-aloud, and download information. It has no editable cursor, eye-closure, binding, or desktop read-aloud controls and no control-settings API. Approving a connection grants no remote control, camera, microphone, or OS access. Patients can revoke connections. Previously saved demo settings, if any, are left in the ignored local data file but are no longer exposed or editable by this website.
+## Desktop setup
 
-## Storage
+Python 3.11 is recommended. See `desktop/README.md`. From the desktop folder:
 
-Accounts are saved in ignored `data/accounts.json`. Never commit this file. Use fictional demo identities only. Passwords are salted scrypt hashes, sessions use HTTP-only SameSite cookies, and login attempts are rate limited. Sessions expire after 15 minutes without interaction, with a warning at 14 minutes. Restarting the server ends sessions but preserves accounts.
+```sh
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python connect.py
+python main.py
+```
 
-`PORT` changes the port; `SIGNALSPEAK_DATA_DIR` changes the data directory. Keep alternate data directories outside Git. The JSON store assumes one server process. Production hosting, email verification, password recovery, account deletion UI, and a production identity system are outside this local prototype.
+`connect.py` asks for the server address (default http://127.0.0.1:3000), patient email and password before the hands-free demo. It saves a device token in ignored `desktop/device.json`, not the password. Pairing again replaces the previous device token. Website sign-out does not stop the paired desktop. The face model is downloaded on first launch.
 
-## Backend handoff
+The Download page provides a source ZIP after running the packaging command. It is **not a standalone installer** and still requires Python/dependencies. Packaging includes source only, excluding device credentials, settings, patient logs and the face model. The legacy unauthenticated stub server is not used or included in that ZIP.
 
-The UI calls same-origin JSON endpoints through `api()` in `public/app.js`. Replace the local adapter in `server.mjs` when the team's backend is ready.
+## Data and permissions
 
-| Endpoint | Request / behavior |
-| --- | --- |
-| POST /api/register | name, email, password, role, optional phone, consent boolean, optional logging boolean; creates and signs in |
-| POST /api/login | email, password |
-| GET /api/me | own public profile only |
-| POST /api/logout | ends session |
-| POST /api/activity | refreshes inactivity timer |
-| GET /api/connections | own care circle, display names and statuses |
-| POST /api/connections | caregiver submits patientId; creates pending request |
-| POST /api/permission | patient submits request id and approved, declined, or revoked status |
-| GET /api/patients | own profile or approved patients, with display names and patient IDs |
+One account store: ignored `data/accounts.json`. Website and phone use the same login API. Desktop requests authenticate with a separate paired token whose hash is stored on the patient account. Patient IDs identify profiles; they never act as credentials.
 
-API errors return `{ "error": "message" }` and a non-2xx status. Sessions use cookies. The desktop backend must separately authenticate the device owner and enforce granular permissions. Website sign-out must not stop essential desktop communication.
+Ignored `data/care.json` stores per-patient settings, event queues, patient logs and caregiver audit entries separately from account credentials. The backend derives actor identity from the session and checks the approved relationship on every phone request. Settings writes use revision checks to prevent silent concurrent overwrites. Phone polling does not extend an idle browser session.
 
-## Pending team assets
+Passwords use salted scrypt. Browser sessions are HTTP-only SameSite cookies with a 15-minute inactivity expiry. Restarting the server ends browser sessions; accounts, care data and paired device identity persist. JSON storage assumes one server process. Use fictional data only.
 
-- Installer and platform requirements: Download currently clearly shows unavailable status.
-- Instruction video and captions: instructions currently show a placeholder plus working text and browser read-aloud.
-- Movement detection, calibration, notifications, video calls, device control, and complete dual activity logs: separate team integrations. Optional logging saves a preference only.
-- Control customization and its history: phone app responsibility. The website's instruction read-aloud buttons read this page only and do not change device preferences.
+## Implemented and remaining
 
-## Verification and attribution
+Implemented: account creation/sign-in, consent, linking and revocation, patient switching, desktop pairing, supported remote settings, offline settings persistence, patient logging consent, actual charts/log export, support notifications, source download.
 
-Run `node --test`. No third-party libraries, fonts, or external assets are used. Initial website implementation used OpenAI Codex; cite AI assistance according to competition requirements. The desktop graphic is an illustrative concept.
+Remaining: video/audio transport (explicitly disabled), instruction video, packaged executable, real-phone networking/HTTPS, production identity, self-service deletion and preference editing. Camera accuracy, OS permissions and eye-only use must be tested on the actual demo laptop. No hardware behavior is implied by API tests.
+
+## Checks
+
+```sh
+node --test
+python -m unittest discover -s desktop/tests -p test_adapter.py -v
+```
+
+The adapter tests need only Python's standard library and don't access the camera or mouse. With all desktop dependencies installed, run `python -m unittest discover -s tests -v` from `desktop` for the original tracking tests too.
+
+## Attribution
+
+Original phone interface: teammate's `app` branch. Original eye tracking/desktop: teammate's `action-implementation` branch. Website and integration use OpenAI Codex assistance. Preserve the desktop's dependency and Claude Code attribution in its source/README. No presentation content is generated here.

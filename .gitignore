@@ -2,3 +2,10 @@ data/
 node_modules/
 *.log
 .env
+__pycache__/
+*.pyc
+desktop/.venv/
+desktop/device.json
+desktop/settings.json
+desktop/activity_log.db
+desktop/face_landmarker.task

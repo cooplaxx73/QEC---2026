@@ -1,8 +1,9 @@
 import http from 'node:http';
-import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename, stat } from 'node:fs/promises';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createCareApi } from './care-api.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = process.env.SIGNALSPEAK_DATA_DIR || path.join(root, 'data');
@@ -43,12 +44,23 @@ function login(res, user) {
   sessions.set(token, { id: user.id, last: Date.now() });
   res.setHeader('Set-Cookie', `session=${token}; HttpOnly; SameSite=Strict; Path=/`);
 }
+const careApi = await createCareApi({ accounts, saveAccounts: save, dataDir, body, reply, error, canManagePatient });
 const server = http.createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   const url = new URL(req.url, 'http://localhost');
   try {
+    if (req.method === 'GET' && url.pathname === '/api/release') {
+      let available = false;
+      try { available = (await stat(path.join(dataDir, 'releases', 'SignalSpeak-desktop-source.zip'))).isFile(); } catch {}
+      return reply(res, 200, { available });
+    }
+    if (req.method === 'GET' && url.pathname === '/downloads/desktop.zip') {
+      let archive;
+      try { archive = await readFile(path.join(dataDir, 'releases', 'SignalSpeak-desktop-source.zip')); } catch { throw error(404, 'Desktop source package has not been built yet.'); }
+      res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="SignalSpeak-desktop-source.zip"' }); return res.end(archive);
+    }
     if (url.pathname.startsWith('/api/')) {
       if (req.method === 'POST' && req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) throw error(403, 'Request origin rejected.');
       if (req.method === 'POST' && url.pathname === '/api/register') {
@@ -75,7 +87,9 @@ const server = http.createServer(async (req, res) => {
         if (!user || !timingSafeEqual(hash, Buffer.from(user.hash, 'hex'))) throw error(401, 'Email or password is incorrect.');
         failures.delete(key); login(res, user); return reply(res, 200, publicUser(user));
       }
+      if (url.pathname.startsWith('/api/device/')) return await careApi(req, res, url);
       const { user, token } = current(req, req.method === 'POST');
+      if (url.pathname.startsWith('/api/care/') || url.pathname === '/api/device-pair') return await careApi(req, res, url, user);
       if (req.method === 'GET' && url.pathname === '/api/me') return reply(res, 200, publicUser(user));
       if (req.method === 'POST' && url.pathname === '/api/activity') return reply(res, 200, { ok: true });
       if (req.method === 'POST' && url.pathname === '/api/logout') { sessions.delete(token); res.setHeader('Set-Cookie', 'session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); return reply(res, 200, { ok: true }); }
@@ -104,7 +118,8 @@ const server = http.createServer(async (req, res) => {
       throw error(404, 'Not found.');
     }
     if (req.method !== 'GET') throw error(405, 'Method not allowed.');
-    const files = { '/': 'index.html', '/styles.css': 'styles.css', '/app.js': 'app.js', '/patients.js': 'patients.js' };
+    const files = { '/': 'index.html', '/styles.css': 'styles.css', '/app.js': 'app.js', '/patients.js': 'patients.js', '/app/': 'companion/index.html', '/app/style.css': 'companion/style.css', '/app/script.js': 'companion/script.js' };
+    if (url.pathname === '/app') { res.writeHead(302, { Location: '/app/' }); return res.end(); }
     const file = files[url.pathname];
     if (!file) throw error(404, 'Not found.');
     const content = await readFile(path.join(root, 'public', file));

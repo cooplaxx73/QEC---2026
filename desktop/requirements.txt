@@ -1,0 +1,9 @@
+# Python 3.11 is recommended (MediaPipe does not support every new Python version).
+mediapipe                   # face, iris and blink tracking (Google, Apache 2.0)
+opencv-python               # webcam capture (Apache 2.0)
+numpy                       # maths for the gaze calibration (BSD)
+PySide6                     # Qt overlay, keyboard and pop-ups (LGPL)
+pynput                      # moves the real mouse and types keys (LGPL)
+pyttsx3                     # offline text-to-speech (MPL 2.0)
+screen-brightness-control   # raises screen brightness in dark rooms (MIT)
+requests                    # talks to the caregiver backend (Apache 2.0)

@@ -16,7 +16,7 @@ test('accounts, private storage, and patient-owned connection decisions', async 
       const res = await fetch(base + route, { method: data === undefined ? 'GET' : 'POST', headers: { ...(data === undefined ? {} : { 'Content-Type': 'application/json' }), ...(cookie ? { Cookie: cookie } : {}) }, body: data === undefined ? undefined : JSON.stringify(data) });
       return { status: res.status, body: await res.json(), cookie: res.headers.get('set-cookie')?.split(';')[0] };
     }
-    const profile = { name: 'Demo Patient', email: 'patient@example.test', password: 'demo-password-123', role: 'patient', consent: true };
+    const profile = { name: 'Demo Patient', email: 'patient@example.test', password: 'demo-password-123', role: 'patient', consent: true, logging: true };
     assert.equal((await call('/api/register', { ...profile, consent: false })).status, 400);
     const patient = await call('/api/register', profile);
     assert.equal(patient.status, 201); assert.match(patient.body.patientId, /^SS-/); assert.equal(patient.body.hash, undefined);
@@ -31,11 +31,40 @@ test('accounts, private storage, and patient-owned connection decisions', async 
     const id = requests.body[0].id;
     assert.deepEqual((await call('/api/patients', undefined, caregiver.cookie)).body, []);
     assert.equal((await call('/api/permission', { id, status: 'approved' }, caregiver.cookie)).status, 403);
-    const stranger = await call('/api/register', { ...profile, email: 'other@example.test' });
+    const stranger = await call('/api/register', { ...profile, email: 'other@example.test', logging: false });
     assert.equal((await call('/api/permission', { id, status: 'approved' }, stranger.cookie)).status, 400);
     assert.equal((await call('/api/permission', { id, status: 'approved' }, patient.cookie)).status, 200);
     const approved = await call('/api/connections', undefined, caregiver.cookie);
     assert.equal(approved.body[0].status, 'approved'); assert.equal(approved.body[0].email, undefined);
+    const careState = '/api/care/state?patientId=' + patient.body.patientId;
+    assert.equal((await call(careState, undefined, stranger.cookie)).status, 403);
+    assert.equal((await call('/api/device-pair', {}, caregiver.cookie)).status, 403);
+    const paired = await call('/api/device-pair', {}, patient.cookie);
+    assert.equal(paired.status, 200);
+    async function device(route, data, token = paired.body.deviceToken) {
+      const response = await fetch(base + '/api/device/' + route, { method: data === undefined ? 'GET' : 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: data === undefined ? undefined : JSON.stringify(data) });
+      return { status: response.status, body: await response.json() };
+    }
+    assert.equal((await device('bootstrap', undefined, 'invalid')).status, 401);
+    assert.equal((await device('bootstrap')).body.logging, true);
+    assert.equal((await call(careState, undefined, caregiver.cookie)).body.connected, true);
+    assert.equal((await call('/api/care/settings', { patientId: patient.body.patientId, revision: 0, changes: { backend_url: 'http://evil.test' } }, caregiver.cookie)).status, 400);
+    const changed = await call('/api/care/settings', { patientId: patient.body.patientId, revision: 0, changes: { click_hold_seconds: 1.1 }, by: 'Spoofed actor' }, caregiver.cookie);
+    assert.equal(changed.status, 200);
+    assert.equal((await call('/api/care/settings', { patientId: patient.body.patientId, revision: 0, changes: { click_hold_seconds: .8 } }, caregiver.cookie)).status, 409);
+    const updates = await device('patient/events?after=0');
+    assert.equal(updates.body[0].changes.click_hold_seconds, 1.1);
+    assert.equal(updates.body[0].by, caregiver.body.name);
+    await device('patient/logs', { kind: 'click', value: .8, note: '' });
+    const recorded = await call(careState, undefined, caregiver.cookie);
+    assert.equal(recorded.body.logs[0].kind, 'click'); assert.equal(recorded.body.audit[0].actorId, caregiver.body.id);
+    assert.equal((await device('patient/call', { video: false })).status, 200);
+    assert.equal((await call('/api/care/events?patientId=' + patient.body.patientId, undefined, caregiver.cookie)).body.at(-1).type, 'call');
+    assert.equal((await call('/api/care/call', { patientId: patient.body.patientId }, caregiver.cookie)).status, 200);
+    assert.equal((await device('patient/events?after=0')).body.at(-1).type, 'caregiver_message');
+    assert.equal((await device('patient/video', { action: 'accept' })).status, 404);
+    assert.equal((await fetch(base + '/app/')).status, 200);
+    assert.equal((await fetch(base + '/app/script.js')).status, 200);
     assert.equal((await call('/api/patients', undefined, caregiver.cookie)).body.length, 1);
     // Patient switching lists approved connections only; no website control settings.
     assert.equal((await call('/api/patient-settings?patientId=' + patient.body.patientId, undefined, patient.cookie)).status, 404);
@@ -44,12 +73,20 @@ test('accounts, private storage, and patient-owned connection decisions', async 
     const otherRequests = await call('/api/connections', undefined, stranger.cookie);
     await call('/api/permission', { id: otherRequests.body[0].id, status: 'approved' }, stranger.cookie);
     assert.equal((await call('/api/patients', undefined, caregiver.cookie)).body.length, 2);
+    const otherPair = await call('/api/device-pair', {}, stranger.cookie);
+    await device('patient/logs', { kind: 'click', value: .6 }, otherPair.body.deviceToken);
+    const otherState = await call('/api/care/state?patientId=' + stranger.body.patientId, undefined, caregiver.cookie);
+    assert.equal(otherState.body.logs.length, 0);
+    assert.equal(otherState.body.settings.click_hold_seconds, .6);
+    assert.equal(otherState.body.audit.length, 0);
     const secondCaregiver = await call('/api/register', { ...profile, name: 'Second Caregiver', role: 'caregiver', email: 'second-care@example.test' });
     await call('/api/connections', { patientId: patient.body.patientId }, secondCaregiver.cookie);
     const secondRequest = (await call('/api/connections', undefined, patient.cookie)).body.find(r => r.caregiverId === secondCaregiver.body.id);
     await call('/api/permission', { id: secondRequest.id, status: 'approved' }, patient.cookie);
     assert.equal((await call('/api/permission', { id, status: 'revoked' }, patient.cookie)).status, 200);
     assert.equal((await call('/api/connections', undefined, caregiver.cookie)).body[0].status, 'revoked');
+    assert.equal((await call(careState, undefined, caregiver.cookie)).status, 403);
+    assert.equal((await call('/api/care/settings', { patientId: patient.body.patientId, revision: 1, changes: { click_hold_seconds: .8 } }, caregiver.cookie)).status, 403);
     assert.equal((await call('/api/patients', undefined, caregiver.cookie)).body.length, 1);
     const disk = await readFile(path.join(dir, 'accounts.json'), 'utf8');
     assert.ok(!disk.includes(profile.password)); assert.ok(JSON.parse(disk)[0].hash);
@@ -59,6 +96,7 @@ test('accounts, private storage, and patient-owned connection decisions', async 
     assert.equal((await fetch(base + '/api/logout', { method: 'POST', headers: { Origin: 'https://untrusted.example', Cookie: patient.cookie } })).status, 403);
     await call('/api/logout', {}, patient.cookie);
     assert.equal((await call('/api/me', undefined, patient.cookie)).status, 401);
+    assert.equal((await device('bootstrap')).status, 200);
     assert.equal((await call('/api/login', { email: profile.email, password: profile.password })).status, 200);
   } finally { child.kill(); await once(child, 'exit'); await rm(dir, { recursive: true, force: true }); }
 });

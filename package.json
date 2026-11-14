@@ -2,6 +2,6 @@
   "name": "signalspeak-web",
   "private": true,
   "type": "module",
-  "scripts": { "start": "node server.mjs", "test": "node --test" },
+  "scripts": { "start": "node server.mjs", "test": "node --test", "package:desktop": "node scripts/package-desktop.mjs" },
   "engines": { "node": ">=22" }
 }
