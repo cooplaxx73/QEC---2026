@@ -34,6 +34,7 @@ class TrackingInterruptions(unittest.TestCase):
             toast=Mock(),
             link=SimpleNamespace(video_active=False),
             record=Mock(),
+            lighting=Mock(active=False),
         )
         self.control.reset_tracking = lambda: EyeControl.reset_tracking(self.control)
         self.control.clicker.update(1.0, 1.0, 0.5, 0.6)
@@ -51,6 +52,11 @@ class TrackingInterruptions(unittest.TestCase):
     def test_face_loss_cancels_movement_and_gestures(self):
         EyeControl.on_face(self.control, SimpleNamespace(found=False))
         self.assert_tracking_cleared()
+
+    def test_disabling_low_light_clears_an_existing_border(self):
+        self.control.lighting.active = True
+        EyeControl.on_face(self.control, SimpleNamespace(found=False))
+        self.control.lighting.turn_off.assert_called_once()
 
     def test_pause_and_resume_discard_tracking_state(self):
         EyeControl.toggle_pause(self.control)

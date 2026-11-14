@@ -9,7 +9,7 @@ const output = path.join(process.env.SIGNALSPEAK_DATA_DIR || path.join(root, 'da
 await mkdir(output, { recursive: true });
 const table = Array.from({ length: 256 }, (_, i) => { let n = i; for (let j = 0; j < 8; j++) n = (n >>> 1) ^ ((n & 1) ? 0xedb88320 : 0); return n >>> 0; });
 function crc32(bytes) { let crc = 0xffffffff; for (const b of bytes) crc = (crc >>> 8) ^ table[(crc ^ b) & 255]; return (crc ^ 0xffffffff) >>> 0; }
-const names = (await readdir(source)).filter(name => name !== 'stub_server.py' && (name.endsWith('.py') || ['requirements.txt', 'README.md'].includes(name))).sort();
+const names = (await readdir(source)).filter(name => name !== 'stub_server.py' && (name.endsWith('.py') || name.endsWith('.pyw') || name === 'Start SignalSpeak.vbs' || ['requirements.txt', 'README.md'].includes(name))).sort();
 const local = [], central = []; let offset = 0;
 for (const name of names) {
   const data = await readFile(path.join(source, name)), filename = Buffer.from(name), crc = crc32(data);

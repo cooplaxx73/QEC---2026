@@ -251,6 +251,8 @@ class EyeControl(QObject):
             self.record('tracking_resumed' if face.found else 'tracking_lost')
         if self.settings.low_light_enabled:
             self.lighting.update(face.brightness, self.settings.low_light_threshold, now)
+        elif self.lighting.active:
+            self.lighting.turn_off()
         if self.link.video_active:
             self.link.my_frame = frame_to_jpeg(face.frame)
         if not face.found:

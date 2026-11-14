@@ -7,8 +7,8 @@ face unlock in the dark) and the screen brightness goes up.
 
 The brightness is automatic. It rises one step at a time and stops as soon
 as the camera can see well enough, so the screen is never brighter than the
-room needs. When the room gets lighter it steps back down to where the
-patient had it.
+room needs. When normal lighting persists for two seconds, the border
+disappears and the original display brightness is restored.
 
 Libraries:
 - screen-brightness-control: https://github.com/Crozzers/screen_brightness_control
@@ -25,8 +25,8 @@ from PySide6.QtWidgets import QWidget
 BORDER_WIDTH = 70          # pixels of white around the screen edge
 BRIGHTNESS_STEP = 10       # how much the screen brightness changes at a time (%)
 STEP_UP_SECONDS = 3        # wait between steps up, so the camera can react
-STEP_DOWN_SECONDS = 60     # wait much longer before dimming (stops flicker)
-BRIGHT_AGAIN_MARGIN = 40   # how much brighter the room must get before dimming
+RECOVERY_SECONDS = 2       # normal light must persist, rather than one bright frame
+BRIGHT_AGAIN_MARGIN = 10   # modest hysteresis avoids getting stuck after room lights return
 
 
 class FillLight(QWidget):
@@ -55,6 +55,7 @@ class LowLightHelper:
         self.original_brightness = None  # what the patient had it set to
         self.current_brightness = None
         self.average = None              # smoothed camera brightness
+        self.bright_since = None
 
     def update(self, brightness: float, threshold: int, now: float) -> None:
         """Call once per camera frame with the frame's average brightness."""
@@ -65,22 +66,26 @@ class LowLightHelper:
         waited = now - self.changed_at
 
         if self.average < threshold:
+            self.bright_since = None
             # Too dark: light the border, then add brightness a step at a time.
             if not self.active:
                 self.turn_on(now)
             elif waited > STEP_UP_SECONDS:
                 self.step(BRIGHTNESS_STEP, now)
-        elif (self.active and waited > STEP_DOWN_SECONDS
-              and self.average > threshold + BRIGHT_AGAIN_MARGIN):
-            # Plenty of light again: dim a step, and finish once we are back.
-            if self.at_original():
+        elif self.active and self.average >= min(255, threshold + BRIGHT_AGAIN_MARGIN):
+            if self.bright_since is None:
+                self.bright_since = now
+            elif now - self.bright_since >= RECOVERY_SECONDS:
+                # The border is a visibility aid, not part of the brightness
+                # ramp. Remove it promptly and restore the original brightness.
                 self.turn_off()
-            else:
-                self.step(-BRIGHTNESS_STEP, now)
+        else:
+            self.bright_since = None
         # In between the two limits we leave the brightness where it is.
 
     def turn_on(self, now: float) -> None:
         self.active = True
+        self.bright_since = None
         self.changed_at = now
         self.fill_light.show()
         try:
@@ -111,6 +116,7 @@ class LowLightHelper:
 
     def turn_off(self) -> None:
         self.active = False
+        self.bright_since = None
         self.fill_light.hide()
         if self.original_brightness is not None:
             try:

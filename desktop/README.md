@@ -22,6 +22,8 @@ On macOS/Linux, activate with `source .venv/bin/activate` instead. `connect.py` 
 
 Do not run `stub_server.py` for this integration. It belongs to the original isolated desktop test setup and has no account permissions. The integrated adapter communicates only with the central account/care API.
 
+After the environment setup and pairing are complete, Windows users can double-click **Start SignalSpeak.vbs** instead of opening a terminal. It uses the virtual environment's windowed Python. Launch failures are written to `startup.log` and shown in a message box. Keep the central server running. F8 pauses and F9 closes the app.
+
 ## Controls
 
 Look to move the cursor. Close both eyes for the configured duration and reopen them to select. Lean forward to zoom, then sit back and select. The keyboard button opens the on-screen keyboard. Instructions and recalibration are available in the overlay. All control customization is in the phone dashboard at `/app/`.
