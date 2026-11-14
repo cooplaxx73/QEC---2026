@@ -10,7 +10,7 @@ Lets a person with ALS control their computer with their eyes, using a normal we
 | Type | Use the on-screen keyboard |
 | Pause eye control | Press F8 (for a helper) |
 
-Only two buttons stay on screen: **Call Caregiver** and **Instructions**.
+Only two icon buttons stay on screen: **Settings** (gear) and **Call Caregiver** (phone). Instructions, the keyboard, recalibration and tuning are all behind Settings. The camera picture only appears during an accepted video call.
 
 ## Setup
 
@@ -41,7 +41,7 @@ The first run downloads the MediaPipe face model (about 4 MB).
 | `gaze.py` | Turns eye and head measurements into a screen position |
 | `calibration.py` | The "look at the dots" screen |
 | `blink.py` | Long-blink click detection |
-| `overlay.py` | The two buttons, instructions panel and pop-ups |
+| `overlay.py` | The two icon buttons, settings and instructions panels, pop-ups |
 | `keyboard.py` | On-screen keyboard |
 | `zoom.py` | Lean-forward zoom |
 | `lighting.py` | Dark-room detection and brightness boost |

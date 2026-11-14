@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QPushButton, QSizePolicy,
 from overlay import OVERLAY_FLAGS, screen_area
 
 KEY_HEIGHT = 92
-BUTTON_BAR_WIDTH = 260  # space left free for the two overlay buttons
+BUTTON_BAR_WIDTH = 150  # space left free for the two overlay buttons
 
 LAYOUTS = {
     "letters": [
