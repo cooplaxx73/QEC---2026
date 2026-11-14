@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+# Downloaded on first run
+desktop/face_landmarker.task
+# Created at runtime (personal data stays on the patient's computer)
+desktop/settings.json
+desktop/activity_log.db
