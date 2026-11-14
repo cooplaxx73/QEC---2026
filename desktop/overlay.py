@@ -1,9 +1,11 @@
 """
-The on-screen overlay: two buttons, the instructions panel and pop-ups.
+The on-screen overlay: four icon buttons, their panels and pop-ups.
 
-Design rules from the project brief:
+Design rules:
 - Only four icon buttons stay on screen: Call Caregiver, Keyboard,
-  Controls and Notifications.
+  Settings and Notifications.
+- Settings is one window with tabs along the top (game-menu style):
+  Instructions, Controls, Recalibrate and Turn off.
 - An incoming video call pops up and rings until it is answered.
 - Everything is large, because webcam eye tracking is not pixel-accurate.
 - Overlay windows never take keyboard focus, so typing still goes to the
@@ -15,8 +17,9 @@ Written with the assistance of Claude Code (Anthropic).
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QPushButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel,
+                               QPushButton, QStackedWidget, QVBoxLayout,
+                               QWidget)
 
 # Always on top, no title bar, no taskbar entry, never takes keyboard focus.
 OVERLAY_FLAGS = (
@@ -24,8 +27,10 @@ OVERLAY_FLAGS = (
     | Qt.Tool | Qt.WindowDoesNotAcceptFocus
 )
 
-RED, BLUE, GREEN, GREY = "#c62828", "#1565c0", "#2e7d32", "#455a64"
-PANEL_STYLE = "background: #101820; color: white; font-size: 20px;"
+# Colours
+RED, BLUE, GREEN, GREY = "#c62828", "#1f6bff", "#2e9d4f", "#3a4a78"
+NAVY, NAVY_LIGHT, YELLOW, PALE = "#0b1638", "#18295e", "#ffd60a", "#c9d6ff"
+PANEL_STYLE = f"background: {NAVY}; color: white; font-size: 20px;"
 
 INSTRUCTIONS = [
     "Move the cursor: look where you want it to go.",
@@ -34,9 +39,24 @@ INSTRUCTIONS = [
     "Then sit back and click in the zoomed view.",
     "The phone button sends a message to your caregiver's phone.",
     "The keyboard button opens the on-screen keyboard for typing.",
-    "The gear button opens Controls, where you choose what a long blink does.",
+    "The gear button opens Settings.",
     "The bell button shows your notifications.",
     "Your camera is never shared unless you accept a video call.",
+]
+
+# Numbers the patient can tune in the Controls tab:
+# (label, name in config.py, step, smallest, largest)
+ADJUSTABLE = [
+    ("Eyes closed for (seconds)", "click_hold_seconds", 0.1, 0.3, 1.4),
+    ("Cursor steadiness", "cursor_smoothing", 0.1, 0.0, 1.0),
+    ("Cursor reach", "cursor_sensitivity", 0.1, 0.5, 2.5),
+]
+
+# What a long blink can do: (text shown, value stored in config.py)
+BLINK_ACTIONS = [
+    ("Left click", "left_click"),
+    ("Right click", "right_click"),
+    ("Double click", "double_click"),
 ]
 
 
@@ -49,18 +69,10 @@ def make_button(text: str, colour: str, on_click,
     button.setStyleSheet(
         f"QPushButton {{ background: {colour}; color: white; font-size: {font_size}px;"
         f" font-weight: bold; border: 3px solid white; border-radius: 16px; }}"
-        f"QPushButton:hover {{ border: 6px solid #ffeb3b; }}"
+        f"QPushButton:hover {{ border: 6px solid {YELLOW}; }}"
     )
     button.clicked.connect(on_click)
     return button
-
-
-def set_button_colour(button: QPushButton, colour: str) -> None:
-    """Change a button's background, e.g. to highlight the chosen option."""
-    # Colours are always 7 characters long, like "#2e7d32".
-    style = button.styleSheet()
-    start = style.index("background: ") + len("background: ")
-    button.setStyleSheet(style[:start] + colour + style[start + 7:])
 
 
 def screen_area():
@@ -77,28 +89,12 @@ def centre_on_screen(window: QWidget) -> None:
     )
 
 
-# Controls the patient can tune themselves:
-# (label, name in config.py, step, smallest, largest)
-ADJUSTABLE = [
-    ("Eyes closed for (seconds)", "click_hold_seconds", 0.1, 0.3, 1.4),
-    ("Cursor steadiness", "cursor_smoothing", 0.1, 0.0, 1.0),
-    ("Cursor reach", "cursor_sensitivity", 0.1, 0.5, 2.5),
-]
-
-# What a long blink can do: (button text, value stored in config.py)
-BLINK_ACTIONS = [
-    ("Left click", "left_click"),
-    ("Right click", "right_click"),
-    ("Double click", "double_click"),
-]
-
-
 class ButtonBar(QWidget):
     """The four icon buttons that are always visible, bottom-right corner."""
 
     call_clicked = Signal()
     keyboard_clicked = Signal()
-    controls_clicked = Signal()
+    settings_clicked = Signal()
     notifications_clicked = Signal()
 
     def __init__(self):
@@ -106,9 +102,9 @@ class ButtonBar(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         layout = QVBoxLayout(self)
         for icon, colour, signal, tip in [
-            ("\u260E", RED, self.call_clicked, "Call caregiver"),          # telephone
-            ("\u2328", BLUE, self.keyboard_clicked, "Keyboard"),           # keyboard
-            ("\u2699", GREY, self.controls_clicked, "Controls"),           # gear
+            ("☎", RED, self.call_clicked, "Call caregiver"),          # telephone
+            ("⌨", BLUE, self.keyboard_clicked, "Keyboard"),           # keyboard
+            ("⚙", GREY, self.settings_clicked, "Settings"),           # gear
             ("\U0001F514", GREY, self.notifications_clicked, "Notifications"),  # bell
         ]:
             button = make_button(icon, colour, signal.emit, 110, 110, font_size=52)
@@ -133,25 +129,32 @@ class ButtonBar(QWidget):
         self.badge.setVisible(count > 0)
 
 
-class Panel(QWidget):
+class Panel(QFrame):
     """A dark window in the middle of the screen. Base for the panels below."""
 
     def __init__(self, title: str):
         super().__init__(None, OVERLAY_FLAGS)
-        self.setStyleSheet(PANEL_STYLE)
+        self.setObjectName("panel")
+        self.setStyleSheet(
+            f"#panel {{ background: {NAVY}; border: 3px solid {BLUE}; }}"
+            " QLabel { color: white; font-size: 20px; }"
+        )
         self.rows = QVBoxLayout(self)
-        self.rows.setContentsMargins(30, 30, 30, 30)
+        self.rows.setContentsMargins(30, 24, 30, 30)
         self.rows.setSpacing(14)
-        heading = QLabel(title)
-        heading.setStyleSheet("font-size: 28px; font-weight: bold;")
+        heading = QLabel(title.upper())
+        heading.setStyleSheet(
+            "font-size: 34px; font-weight: 900; font-style: italic;"
+            f" letter-spacing: 3px; color: {YELLOW};")
         self.rows.addWidget(heading)
 
-    def add_button_row(self, buttons: list) -> None:
+    def add_button_row(self, buttons: list, layout=None) -> None:
         """buttons is a list of (text, colour, function to call)."""
         row = QHBoxLayout()
+        row.addStretch()
         for text, colour, on_click in buttons:
-            row.addWidget(make_button(text, colour, on_click, 200, 100))
-        self.rows.addLayout(row)
+            row.addWidget(make_button(text, colour, on_click, 200, 90))
+        (layout or self.rows).addLayout(row)
 
     def toggle(self) -> None:
         if self.isVisible():
@@ -161,72 +164,171 @@ class Panel(QWidget):
             self.show()
 
 
-class ControlsPanel(Panel):
-    """Lets the patient choose how the controls behave."""
+class SettingRow(QFrame):
+    """One line in the Controls tab:   LABEL            <   value   >"""
 
-    instructions_clicked = Signal()
+    def __init__(self, label: str, on_previous, on_next):
+        super().__init__()
+        self.setObjectName("row")
+        self.setStyleSheet(f"#row {{ background: {NAVY_LIGHT}; }}")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(20, 8, 8, 8)
+
+        name = QLabel(label.upper())
+        name.setStyleSheet("font-size: 20px; font-weight: bold; letter-spacing: 1px;")
+        layout.addWidget(name, 1)
+
+        self.value = QLabel()
+        self.value.setFixedWidth(220)
+        self.value.setAlignment(Qt.AlignCenter)
+        self.value.setStyleSheet(
+            f"font-size: 24px; font-weight: 900; color: {YELLOW};")
+
+        layout.addWidget(self.arrow("◀", on_previous))  # left triangle
+        layout.addWidget(self.value)
+        layout.addWidget(self.arrow("▶", on_next))      # right triangle
+
+    @staticmethod
+    def arrow(symbol: str, on_click) -> QPushButton:
+        button = QPushButton(symbol)
+        button.setFixedSize(90, 74)
+        button.setFocusPolicy(Qt.NoFocus)
+        button.setStyleSheet(
+            f"QPushButton {{ background: {GREY}; color: white; font-size: 28px;"
+            f" border: none; }} QPushButton:hover {{ background: {BLUE}; }}")
+        button.clicked.connect(on_click)
+        return button
+
+    def show_value(self, text: str) -> None:
+        self.value.setText(text.upper())
+
+
+class SettingsPanel(Panel):
+    """One window with four tabs along the top, like a game settings menu."""
+
+    TABS = ["Instructions", "Controls", "Recalibrate", "Turn off"]
+
+    read_aloud_clicked = Signal()
     recalibrate_clicked = Signal()
     quit_clicked = Signal()
     setting_changed = Signal(str, object)  # (name in config.py, new value)
 
     def __init__(self, settings):
-        super().__init__("Controls")
+        super().__init__("Settings")
         self.settings = settings
+        self.setFixedWidth(1040)
 
-        # Row 1: what a long blink does.
-        self.rows.addWidget(QLabel("A long blink does a:"))
-        self.action_buttons = {}
-        row = QHBoxLayout()
-        for text, value in BLINK_ACTIONS:
-            button = make_button(text, GREY, self.setter("blink_action", value), 200, 90)
-            self.action_buttons[value] = button
-            row.addWidget(button)
-        self.rows.addLayout(row)
+        # The tab strip.
+        self.tab_buttons = []
+        strip = QHBoxLayout()
+        strip.setSpacing(4)
+        for index, name in enumerate(self.TABS):
+            button = QPushButton(name.upper())
+            button.setFixedHeight(84)
+            button.setFocusPolicy(Qt.NoFocus)
+            button.clicked.connect(lambda checked=False, i=index: self.show_tab(i))
+            self.tab_buttons.append(button)
+            strip.addWidget(button)
+        self.rows.addLayout(strip)
 
-        # One row per number:  label   [-]  value  [+]
-        self.value_labels = {}
-        for label, name, step, smallest, largest in ADJUSTABLE:
-            row = QHBoxLayout()
-            row.addWidget(QLabel(label), 1)
-            row.addWidget(make_button(
-                "\u2212", GREY, self.adjuster(name, -step, smallest, largest),
-                80, 80, font_size=34))
-            value = QLabel()
-            value.setFixedWidth(90)
-            value.setAlignment(Qt.AlignCenter)
-            value.setStyleSheet("font-size: 26px; font-weight: bold;")
-            self.value_labels[name] = value
-            row.addWidget(value)
-            row.addWidget(make_button(
-                "+", GREY, self.adjuster(name, step, smallest, largest),
-                80, 80, font_size=34))
-            self.rows.addLayout(row)
+        # One page per tab. Only the chosen page is visible.
+        self.pages = QStackedWidget()
+        self.pages.addWidget(self.instructions_page())
+        self.pages.addWidget(self.controls_page())
+        self.pages.addWidget(self.action_page(
+            "Look at 13 dots, one at a time. It takes about 30 seconds.\n"
+            "Do this again if the cursor stops matching where you look.",
+            "Start", BLUE, self.recalibrate_clicked.emit))
+        self.pages.addWidget(self.action_page(
+            "Turns eye control off and removes the buttons from the screen.\n"
+            "A helper will need to start the program again.",
+            "Turn off", RED, self.quit_clicked.emit))
+        self.rows.addWidget(self.pages)
 
-        # Zoom on or off.
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Zoom when leaning towards the screen"), 1)
-        self.zoom_button = make_button("", GREY, self.toggle_zoom, 180, 80)
-        row.addWidget(self.zoom_button)
-        self.rows.addLayout(row)
-
-        self.add_button_row([
-            ("Instructions", BLUE, self.instructions_clicked.emit),
-            ("Recalibrate", GREY, self.recalibrate_clicked.emit),
-            ("Turn off", GREY, self.quit_clicked.emit),
-            ("Close", GREEN, self.hide),
-        ])
+        self.add_button_row([("Close", GREY, self.hide)])
+        self.show_tab(0)
         self.refresh()
 
-    def setter(self, name: str, value):
-        """Makes the function that a choice button runs when clicked."""
-        return lambda: self.change(name, value)
+    # ----- tabs -----
 
-    def adjuster(self, name: str, step: float, smallest: float, largest: float):
-        """Makes the function that a - or + button runs when clicked."""
-        def adjust():
+    def show_tab(self, index: int) -> None:
+        self.pages.setCurrentIndex(index)
+        for number, button in enumerate(self.tab_buttons):
+            chosen = number == index
+            # The chosen tab is bright yellow, the others are dim.
+            button.setStyleSheet(
+                "QPushButton { font-size: 20px; font-weight: 900; font-style: italic;"
+                " letter-spacing: 2px; border: none;"
+                f" border-bottom: 6px solid {YELLOW if chosen else NAVY_LIGHT};"
+                f" background: {YELLOW if chosen else NAVY_LIGHT};"
+                f" color: {NAVY if chosen else PALE}; }}"
+                f" QPushButton:hover {{ border-bottom: 6px solid {YELLOW}; }}"
+            )
+
+    def instructions_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        for line in INSTRUCTIONS:
+            label = QLabel("▸  " + line)  # small triangle bullet
+            label.setWordWrap(True)
+            layout.addWidget(label)
+        self.add_button_row(
+            [("Read aloud", BLUE, self.read_aloud_clicked.emit)], layout)
+        return page
+
+    def controls_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setSpacing(8)
+
+        self.action_row = SettingRow(
+            "Long blink does a",
+            lambda: self.cycle_blink_action(-1), lambda: self.cycle_blink_action(1))
+        layout.addWidget(self.action_row)
+
+        self.number_rows = {}
+        for label, name, step, smallest, largest in ADJUSTABLE:
+            row = SettingRow(
+                label,
+                self.stepper(name, -step, smallest, largest),
+                self.stepper(name, step, smallest, largest))
+            self.number_rows[name] = row
+            layout.addWidget(row)
+
+        self.zoom_row = SettingRow("Zoom when leaning in", self.toggle_zoom, self.toggle_zoom)
+        layout.addWidget(self.zoom_row)
+        layout.addStretch()
+        return page
+
+    def action_page(self, text: str, button_text: str, colour: str, on_click) -> QWidget:
+        """A tab with an explanation and one big button."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        label = QLabel(text)
+        label.setWordWrap(True)
+        label.setStyleSheet("font-size: 24px;")
+        layout.addWidget(label)
+        layout.addStretch()
+        row = QHBoxLayout()
+        row.addWidget(make_button(button_text.upper(), colour, on_click, 360, 130, 30))
+        layout.addLayout(row)
+        layout.addStretch()
+        return page
+
+    # ----- changing a control -----
+
+    def cycle_blink_action(self, direction: int) -> None:
+        """Move to the previous (-1) or next (+1) blink action."""
+        values = [value for _, value in BLINK_ACTIONS]
+        position = values.index(self.settings.blink_action) + direction
+        self.change("blink_action", values[position % len(values)])
+
+    def stepper(self, name: str, step: float, smallest: float, largest: float):
+        """Makes the function that an arrow button runs when clicked."""
+        def change_number():
             value = round(getattr(self.settings, name) + step, 2)
             self.change(name, min(max(value, smallest), largest))
-        return adjust
+        return change_number
 
     def toggle_zoom(self) -> None:
         self.change("zoom_enabled", not self.settings.zoom_enabled)
@@ -237,14 +339,11 @@ class ControlsPanel(Panel):
 
     def refresh(self) -> None:
         """Show the current values (the caregiver may have changed them)."""
-        for name, label in self.value_labels.items():
-            label.setText(f"{getattr(self.settings, name):.1f}")
-        for value, button in self.action_buttons.items():
-            chosen = value == self.settings.blink_action
-            set_button_colour(button, GREEN if chosen else GREY)
-        self.zoom_button.setText("On" if self.settings.zoom_enabled else "Off")
-        set_button_colour(
-            self.zoom_button, GREEN if self.settings.zoom_enabled else GREY)
+        texts = dict((value, text) for text, value in BLINK_ACTIONS)
+        self.action_row.show_value(texts[self.settings.blink_action])
+        for name, row in self.number_rows.items():
+            row.show_value(f"{getattr(self.settings, name):.1f}")
+        self.zoom_row.show_value("On" if self.settings.zoom_enabled else "Off")
 
     def toggle(self) -> None:
         self.refresh()
@@ -267,7 +366,7 @@ class NotificationsPanel(Panel):
         self.add_button_row([
             ("Read aloud", BLUE, self.read_aloud_clicked.emit),
             ("Clear", GREY, self.clear),
-            ("Close", GREEN, self.hide),
+            ("Close", GREY, self.hide),
         ])
         self.refresh()
 
@@ -298,7 +397,7 @@ class IncomingCallPopup(Panel):
 
     def __init__(self):
         super().__init__("Incoming video call")
-        self.phone = QLabel("\u260E")
+        self.phone = QLabel("☎")
         self.phone.setAlignment(Qt.AlignCenter)
         self.rows.addWidget(self.phone)
         message = QLabel("Your caregiver would like a video call.\n"
@@ -326,7 +425,7 @@ class IncomingCallPopup(Panel):
             self.answer("decline")
             return
         QApplication.beep()
-        colour = "#ffeb3b" if self.rings % 2 else "white"
+        colour = YELLOW if self.rings % 2 else "white"
         self.phone.setStyleSheet(f"font-size: 110px; color: {colour};")
 
     def answer(self, choice: str) -> None:
@@ -338,23 +437,6 @@ class IncomingCallPopup(Panel):
         """The caregiver hung up before the patient answered."""
         self.ring_timer.stop()
         self.hide()
-
-
-class InstructionsPanel(Panel):
-    """Lists the controls, with a read-aloud button."""
-
-    read_aloud_clicked = Signal()
-
-    def __init__(self):
-        super().__init__("How to use your eyes to control the computer")
-        for line in INSTRUCTIONS:
-            label = QLabel("\u2022  " + line)
-            label.setWordWrap(True)
-            self.rows.addWidget(label)
-        self.add_button_row([
-            ("Read aloud", BLUE, self.read_aloud_clicked.emit),
-            ("Close", GREEN, self.hide),
-        ])
 
 
 class ChoicePopup(QWidget):
@@ -394,7 +476,7 @@ class Toast(QLabel):
     def __init__(self):
         super().__init__(None, OVERLAY_FLAGS)
         self.setStyleSheet(
-            PANEL_STYLE + "padding: 18px 30px; border: 3px solid #ffeb3b;"
+            PANEL_STYLE + f"padding: 18px 30px; border: 3px solid {YELLOW};"
             "font-size: 22px; font-weight: bold;"
         )
         self.setAlignment(Qt.AlignCenter)
