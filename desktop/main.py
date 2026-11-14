@@ -38,7 +38,7 @@ from activity_log import ActivityLog
 from blink import BlinkClicker
 from calibration import CalibrationScreen
 from camera import FaceTracker
-from caregiver_link import CaregiverLink
+from caregiver_link import DEVICE_FILE, CaregiverLink, OfflineLink
 from config import apply_changes, load_settings, save_settings
 from gaze import (POINTER_COLUMNS, GazeMapper, GazeSmoother,
                   eyes_closed_amount, face_size, gaze_features)
@@ -158,7 +158,10 @@ class EyeControl(QObject):
         self.log = ActivityLog()
         self.speaker = Speaker(self.settings)
         self.lighting = LowLightHelper()
-        self.link = CaregiverLink(self.settings.backend_url)
+        # Paired with a patient account (connect.py)? Then talk to the care
+        # server. If not, run by itself with nothing leaving this computer.
+        self.link = (CaregiverLink(self.settings.backend_url)
+                     if DEVICE_FILE.exists() else OfflineLink())
         self.link.event_received.connect(self.on_caregiver_event)
         self.logging_enabled = False
         self.gaze_sampler = GazeSampler()
@@ -221,6 +224,9 @@ class EyeControl(QObject):
         self.hotkeys.start()
 
         self.record("session_start")
+        if not self.link.paired:
+            self.notify("Not connected to a caregiver. Eye control works by itself. "
+                        "A helper can run connect.py to connect.")
         self.start_calibration()
 
     # ----- calibration -----
@@ -522,6 +528,10 @@ class EyeControl(QObject):
     def call_caregiver(self, choice: str) -> None:
         if choice == "Cancel":
             return
+        if not self.link.paired:
+            self.announce("This computer is not connected to a caregiver yet. "
+                          "A helper can connect it by running connect.py.", seconds=10)
+            return
         self.link.send("/patient/call", {"video": choice == "Call with video"})
         self.record("call_caregiver", note=choice)
         self.announce("Your request is queued. Waiting for the care server.")
@@ -640,6 +650,9 @@ class EyeControl(QObject):
         """Save to the local log and send a copy to the backend."""
         if getattr(self, 'logging_enabled', False):
             self.link.send("/patient/logs", self.log.record(kind, value, note, details))
+        elif not self.link.paired:
+            # Not paired: keep the progression log on this computer only.
+            self.log.record(kind, value, note, details)
 
     # ----- pause, errors and shutdown -----
 
@@ -674,10 +687,6 @@ class EyeControl(QObject):
 def main() -> None:
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
-    from caregiver_link import DEVICE_FILE
-    if not DEVICE_FILE.exists():
-        QMessageBox.information(None, "Pair your desktop", "Run python connect.py first and sign in with the patient account. Then run python main.py again.")
-        return
     control = EyeControl(app)
     app.aboutToQuit.connect(control.shut_down)
     sys.exit(app.exec())

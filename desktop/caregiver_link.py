@@ -12,7 +12,35 @@ from PySide6.QtCore import QObject, Signal
 
 DEVICE_FILE = Path(__file__).parent / "device.json"
 
+class OfflineLink(QObject):
+    """Stands in for CaregiverLink when this computer has not been paired.
+
+    The patient program then works by itself: eye control, clicking, the
+    keyboard and the ability test all run, and nothing leaves the computer.
+    Added with the assistance of Claude Code (Anthropic).
+    """
+    event_received = Signal(dict)
+    frame_received = Signal(bytes)
+    paired = False
+
+    def __init__(self):
+        super().__init__()
+        self.video_active = False
+        self.my_frame = None
+
+    def start(self):
+        pass
+
+    def send(self, path, data):
+        pass  # no care server to send to
+
+    def stop(self):
+        pass
+
+
 class CaregiverLink(QObject):
+    paired = True
+
     event_received = Signal(dict)
     frame_received = Signal(bytes)
 

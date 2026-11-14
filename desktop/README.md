@@ -19,9 +19,11 @@ Four icon buttons stay on screen: **Call Caregiver** (phone), **Keyboard**, **Se
 
 ## Setup
 
-Requires Python 3.11, a webcam and the central Node account server running on the laptop (default http://127.0.0.1:3000). See the README in the repository root for the server.
+Requires Python 3.11 and a webcam.
 
-Create the patient account on the website and accept privacy. The optional logging choice controls local patient activity collection and transmission. Caregiver audit entries are separate.
+**Without an account:** skip `python connect.py` below. The program then runs by itself: eye control, clicking, the keyboard and the ability test all work, the progression log stays on this computer, and nothing is sent anywhere.
+
+**With an account:** the central Node account server must be running on the laptop (default http://127.0.0.1:3000). See the README in the repository root. Create the patient account on the website and accept privacy. The optional logging choice controls local patient activity collection and transmission. Caregiver audit entries are separate.
 
 From this folder on Windows:
 
@@ -35,7 +37,7 @@ python main.py
 
 On macOS/Linux, activate with `source .venv/bin/activate` instead. `connect.py` asks for the patient account's email/password and saves an authenticated device token in `device.json`; it does not save the password. Pairing again invalidates the old token. Do not share this file or commit it to Git.
 
-After the environment setup and pairing are complete, Windows users can double-click **Start SignalSpeak.vbs** instead of opening a terminal. It uses the virtual environment's windowed Python. Launch failures are written to `startup.log` and shown in a message box. Keep the central server running.
+After the environment setup is complete, Windows users can double-click **Start SignalSpeak.vbs** instead of opening a terminal. It uses the virtual environment's windowed Python. Launch failures are written to `startup.log` and shown in a message box. When paired, keep the central server running.
 
 The first launch downloads the MediaPipe face model (about 4 MB). This source package is not a standalone installer.
 
@@ -66,7 +68,7 @@ F8/F9 and real-mouse takeover are helper controls; do not use them to operate th
 ## Privacy
 
 - Camera frames are processed on this computer and never saved or sent.
-- Patient progression entries are recorded in local `activity_log.db` and sent to the server only when the patient enabled logging. They contain action types and timings, not typed text.
+- When paired, patient progression entries are recorded in local `activity_log.db` and sent to the server only when the patient enabled logging. Unpaired, they are recorded locally and never sent. They contain action types and timings, not typed text.
 - With logging on, the log includes estimated gaze samples at 2 Hz, cursor and click coordinates, screen dimensions, blink duration, tracking interruptions, pause/resume, calibration fit error, ability test scores, zoom and key-action counts. No screen contents, screenshots, video or typed text are recorded.
 - The patient can turn logging on or off in the phone Activity log. Approved caregivers can view events but cannot enable logging.
 - Phone settings and caregiver actions are recorded separately in the server audit log.
