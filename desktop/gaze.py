@@ -90,7 +90,9 @@ def eyes_closed_amount(face) -> float:
 class GazeMapper:
     """Learns to turn gaze features into a screen position (0 to 1)."""
 
-    RIDGE = 1.0  # higher = smoother but less precise mapping
+    # Ridge strength: higher = smoother but less precise. We try each one
+    # and keep whichever predicts best on dots it was not shown.
+    RIDGE_CHOICES = [0.1, 1.0, 10.0, 100.0]
 
     def __init__(self):
         self.weights = None
@@ -99,18 +101,38 @@ class GazeMapper:
     def ready(self) -> bool:
         return self.weights is not None
 
-    def fit(self, features: np.ndarray, targets: np.ndarray) -> None:
-        """features: one row per sample. targets: matching (x, y) rows."""
+    def fit(self, features: np.ndarray, targets: np.ndarray) -> float:
+        """features: one row per sample. targets: matching (x, y) rows.
+
+        Returns the expected error as a fraction of the screen (0.05 = 5%).
+        """
         # Put every feature on the same scale so none dominates.
         self.mean = features.mean(axis=0)
         self.spread = features.std(axis=0) + 1e-6
         inputs = self._prepare(features)
-        # Ridge regression: solve (X'X + ridge*I) W = X'Y
-        penalty = self.RIDGE * np.eye(inputs.shape[1])
+
+        # Honest accuracy test (cross-validation): hide one dot, learn from
+        # the others, then measure how well the hidden dot is predicted.
+        dots = np.unique(targets, axis=0)
+        best_error, best_ridge = float("inf"), self.RIDGE_CHOICES[0]
+        for ridge in self.RIDGE_CHOICES:
+            errors = []
+            for dot in dots:
+                hidden = (targets == dot).all(axis=1)
+                weights = self._solve(inputs[~hidden], targets[~hidden], ridge)
+                errors.append(np.abs(inputs[hidden] @ weights - dot).mean())
+            if np.mean(errors) < best_error:
+                best_error, best_ridge = float(np.mean(errors)), ridge
+
+        self.weights = self._solve(inputs, targets, best_ridge)
+        return best_error
+
+    @staticmethod
+    def _solve(inputs: np.ndarray, targets: np.ndarray, ridge: float) -> np.ndarray:
+        """Ridge regression: solve (X'X + ridge*I) W = X'Y."""
+        penalty = ridge * np.eye(inputs.shape[1])
         penalty[-1, -1] = 0  # do not penalise the constant term
-        self.weights = np.linalg.solve(
-            inputs.T @ inputs + penalty, inputs.T @ targets
-        )
+        return np.linalg.solve(inputs.T @ inputs + penalty, inputs.T @ targets)
 
     def predict(self, features: np.ndarray) -> tuple[float, float]:
         x, y = self._prepare(features[None, :])[0] @ self.weights
