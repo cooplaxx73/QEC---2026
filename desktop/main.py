@@ -259,6 +259,11 @@ class EyeControl(QObject):
             return
         if self.paused or not self.mapper.ready:
             return
+        if self.mouse_in_charge(now):
+            # Mouse takeover also suspends eye gestures, including lean-to-zoom.
+            # Nothing accumulated during the override should fire on resuming.
+            self.reset_tracking()
+            return
 
         wants_click = self.clicker.update(
             closed, now,
@@ -314,6 +319,7 @@ class EyeControl(QObject):
         if (self.placed is not None
                 and (actual - self.placed).manhattanLength() > MOUSE_MOVED_PIXELS):
             self.mouse_until = now + MOUSE_HOLD_SECONDS
+            self.reset_tracking()
 
         waiting = (self.paused or self.target is None or self.calibration.isVisible()
                    or now < self.frozen_until or self.mouse_in_charge(now))

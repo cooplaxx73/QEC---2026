@@ -9,7 +9,7 @@ Lets a person with ALS control their computer with their eyes, using a normal we
 | Zoom | Look at a target and lean towards the screen. Sit back, then click in the zoomed view |
 | Type | Use the on-screen keyboard |
 | Pause eye control | Press F8 (for a helper) |
-| Use the mouse | Just move it. Eye control lets go, and returns 2 seconds after the mouse stops |
+| Use the mouse | Just move it. Eye movement, blink clicks and lean-to-zoom pause, and return 2 seconds after the mouse stops |
 | Quit | Press F9, or Settings then the Turn off tab |
 
 Four icon buttons stay on screen: **Call Caregiver** (phone), **Keyboard**, **Settings** (gear) and **Notifications** (bell). Settings is one window with tabs: Instructions, Recalibrate and Turn off. An incoming video call pops up and rings; the camera picture only appears after both sides accept. A short beep confirms each click.
