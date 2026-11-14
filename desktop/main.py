@@ -8,12 +8,11 @@ Flow for every camera frame:
                    lighting.py ->  brighten the screen in a dark room
 
 Run with:  python main.py
-Press F8 at any time to pause or resume eye control.
+Press F8 at any time to pause or resume eye control, and F9 to quit.
 
 Libraries:
 - PySide6 (Qt for Python) for windows and timers: https://doc.qt.io/qtforpython-6/
 - pynput for mouse clicks and the F8 hotkey: https://pynput.readthedocs.io
-- NumPy: https://numpy.org
 
 Written with the assistance of Claude Code (Anthropic).
 """
@@ -21,7 +20,6 @@ Written with the assistance of Claude Code (Anthropic).
 import sys
 import time
 
-import numpy as np
 from pynput import keyboard, mouse
 from PySide6.QtCore import QObject, QPoint, QThread, QTimer, Signal
 from PySide6.QtGui import QCursor
@@ -44,6 +42,7 @@ from video_call import VideoWindow, frame_to_jpeg
 from zoom import LeanDetector, ZoomView
 
 FREEZE_AFTER_BLINK_SECONDS = 0.25  # eyes need a moment to settle after opening
+GOOD_CALIBRATION = 0.07            # expected error below 7% of the screen
 
 
 class CameraThread(QThread):
@@ -77,7 +76,9 @@ class CameraThread(QThread):
 class EyeControl(QObject):
     """The main program: owns every part and passes data between them."""
 
-    pause_pressed = Signal()  # sent from the hotkey thread to the main thread
+    # Sent from the hotkey thread to the main thread.
+    pause_pressed = Signal()
+    quit_pressed = Signal()
 
     def __init__(self, app: QApplication):
         super().__init__()
@@ -132,8 +133,10 @@ class EyeControl(QObject):
         self.camera.failed.connect(self.on_camera_failed)
         self.camera.start()
 
-        # F8 pauses eye control, so a helper can always take the mouse back.
+        # F8 pauses eye control and F9 quits, so a helper can always take
+        # the mouse back.
         self.pause_pressed.connect(self.toggle_pause)
+        self.quit_pressed.connect(self.app.quit)
         self.hotkeys = keyboard.Listener(on_press=self.on_key)
         self.hotkeys.start()
 
@@ -149,16 +152,21 @@ class EyeControl(QObject):
         self.calibration.start()
 
     def on_calibration_finished(self, features, targets, resting_face_size) -> None:
-        self.mapper.fit(features, targets)
+        # The expected error (fraction of the screen) is logged, so a doctor
+        # can see if eye control gets less precise over time.
+        error = self.mapper.fit(features, targets)
+        self.record("calibration", error)
         self.resting_face_size = resting_face_size
         self.smoother = OneEuroFilter(self.settings.cursor_smoothing)
         self.buttons.show()
 
-        # How far off the fit is, as a fraction of the screen. Logged so a
-        # doctor can see if eye control gets less precise over time.
-        guesses = np.array([self.mapper.predict(row) for row in features])
-        self.record("calibration", float(np.abs(guesses - targets).mean()))
-        self.announce("Ready. Close both eyes for half a second to click.")
+        if error <= GOOD_CALIBRATION:
+            self.announce("Ready. Close both eyes for half a second to click.")
+        else:
+            self.announce(
+                "Ready, but tracking may be rough. For better accuracy, light "
+                "your face, keep your head still and recalibrate from Settings.",
+                seconds=10)
 
     # ----- every camera frame -----
 
@@ -172,21 +180,23 @@ class EyeControl(QObject):
             return
 
         features = gaze_features(face)
+        closed = eyes_closed_amount(face)
+        # Gaze is unreliable while the eyelids are moving.
+        eyelids_moving = closed > self.settings.blink_threshold * 0.6
+
         if self.calibration.isVisible():
-            self.calibration.add_sample(features, face_size(face))
+            self.calibration.add_sample(
+                features, face_size(face), eyes_open=not eyelids_moving)
             return
         if self.paused or not self.mapper.ready:
             return
 
-        closed = eyes_closed_amount(face)
         wants_click = self.clicker.update(
             closed, now,
             self.settings.blink_threshold, self.settings.click_hold_seconds,
         )
 
-        # Gaze is unreliable while the eyelids move, so hold the cursor still
-        # during a blink and for a moment after it.
-        eyelids_moving = closed > self.settings.blink_threshold * 0.6
+        # Hold the cursor still during a blink and for a moment after it.
         if eyelids_moving or self.clicker.eyes_closed:
             self.frozen_until = now + FREEZE_AFTER_BLINK_SECONDS
         if wants_click:
@@ -334,6 +344,8 @@ class EyeControl(QObject):
     def on_key(self, key) -> None:
         if key == keyboard.Key.f8:
             self.pause_pressed.emit()
+        elif key == keyboard.Key.f9:
+            self.quit_pressed.emit()
 
     def toggle_pause(self) -> None:
         self.paused = not self.paused
