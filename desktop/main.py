@@ -203,7 +203,17 @@ class EyeControl(QObject):
 
     # ----- calibration -----
 
+    def reset_tracking(self) -> None:
+        """Discard old movements and gestures when eye control is interrupted."""
+        self.target = None
+        self.recent_targets.clear()
+        self.clicker = BlinkClicker()
+        self.smoother = GazeSmoother(self.settings.cursor_smoothing)
+        self.lean = LeanDetector()
+        self.frozen_until = 0.0
+
     def start_calibration(self) -> None:
+        self.reset_tracking()
         for window in (self.buttons, self.settings_panel, self.notifications,
                        self.keyboard):
             window.hide()
@@ -215,8 +225,7 @@ class EyeControl(QObject):
         error = self.mapper.fit(features, targets)
         self.record("calibration", error)
         self.resting_face_size = resting_face_size
-        self.smoother = GazeSmoother(self.settings.cursor_smoothing)
-        self.target = None
+        self.reset_tracking()
         self.buttons.show()
 
         if error <= GOOD_CALIBRATION:
@@ -236,6 +245,7 @@ class EyeControl(QObject):
         if self.link.video_active:
             self.link.my_frame = frame_to_jpeg(face.frame)
         if not face.found:
+            self.reset_tracking()
             return
 
         features = gaze_features(face)
@@ -469,6 +479,7 @@ class EyeControl(QObject):
 
     def toggle_pause(self) -> None:
         self.paused = not self.paused
+        self.reset_tracking()
         self.toast.show_message(
             "Eye control paused. Press F8 to resume." if self.paused
             else "Eye control resumed.")

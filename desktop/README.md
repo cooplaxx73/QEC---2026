@@ -34,6 +34,16 @@ python main.py
 
 The first run downloads the MediaPipe face model (about 4 MB).
 
+## Checks
+
+From `desktop`, with the virtual environment active:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The tracking tests run without opening a camera or moving the mouse.
+
 ## Files
 
 | File | Job |
