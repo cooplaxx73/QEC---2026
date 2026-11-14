@@ -21,6 +21,10 @@ class Settings:
     # Camera
     camera_index: int = 0
 
+    # What moves the cursor: "eyes" (look at the target) or "head" (point
+    # your nose at it). Head pointing is steadier but needs neck movement.
+    pointer_mode: str = "eyes"
+
     # Cursor
     cursor_sensitivity: float = 1.0   # above 1 = less eye movement needed
     cursor_smoothing: float = 0.5     # 0 = fast and shaky, 1 = slow and steady

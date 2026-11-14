@@ -6,11 +6,14 @@ time. This test finds the face movement that a patient can make most
 reliably TODAY, so that movement can be used to click instead of always
 assuming a long blink.
 
-The test takes about 75 seconds:
+The test takes about 95 seconds:
 1. Relax for a few seconds. This measures the resting face.
 2. For each movement (close eyes, raise eyebrows, open mouth, smile,
    pucker lips): do it three times, holding until the tone, with a rest
    in between.
+3. Turn the head left, right, up and down, holding each until the tone.
+   This shows whether the patient could steer the cursor with their head
+   (steadier than the eyes) and how far and how steadily they can turn.
 
 Each movement is then scored out of 100 from five things:
 - Made it:     how many of the three tries clearly happened.
@@ -32,6 +35,7 @@ Libraries:
 Written with the assistance of Claude Code (Anthropic).
 """
 
+import math
 import time
 
 import numpy as np
@@ -73,10 +77,37 @@ CLEAR_MOVEMENT = 0.15  # a try counts if it goes this far beyond resting
 FULL_STRENGTH = 0.35   # going this far beyond resting earns full marks
 GOOD_SCORE = 50        # below this, a movement is not offered for clicking
 
+# The head part: direction -> what to tell the patient.
+HEAD_TURNS = {
+    "left": "Turn your head left",
+    "right": "Turn your head right",
+    "up": "Tilt your head up",
+    "down": "Tilt your head down",
+}
+TURN_SECONDS = 2.5     # hold each head turn this long
+CENTRE_SECONDS = 2.0   # come back to the middle
+# Pointing your nose at the edge of a laptop screen needs about this much.
+FULL_SIDEWAYS_DEGREES = 12
+FULL_UP_DOWN_DEGREES = 8
+STEADY_DEGREES = 0.8   # wobble below this while holding earns full marks
+GOOD_HEAD_SCORE = 60   # at or above this, head pointing is suggested
+
 
 def movement_amount(name: str, blendshapes: dict) -> float:
     """How strongly the face is making a movement right now (0 to 1)."""
     return float(MOVEMENTS[name][2](blendshapes))
+
+
+def head_angles(head_matrix) -> tuple[float, float]:
+    """Which way the face points, in degrees: (sideways, up or down).
+
+    The third column of MediaPipe's head matrix is the direction the face
+    is pointing. Straight at the camera gives (0, 0).
+    """
+    forward = np.array(head_matrix)[:3, 2]
+    forward = forward / (np.linalg.norm(forward) + 1e-9)
+    return (math.degrees(math.asin(max(-1.0, min(1.0, float(forward[0]))))),
+            math.degrees(math.asin(max(-1.0, min(1.0, float(forward[1]))))))
 
 
 def make_schedule() -> list[tuple]:
@@ -87,7 +118,60 @@ def make_schedule() -> list[tuple]:
         for _ in range(TRIES):
             parts.append(("do", name, DO_SECONDS))
             parts.append(("relax", name, RELAX_SECONDS))
+    parts.append(("ready", "head", READY_SECONDS))
+    for direction in HEAD_TURNS:
+        parts.append(("turn", direction, TURN_SECONDS))
+        parts.append(("centre", direction, CENTRE_SECONDS))
     return parts
+
+
+def score_head(schedule: list, readings: list) -> dict:
+    """How well the patient can turn and hold their head.
+
+    Uses the "sideways" and "up_down" angles stored with every reading.
+    """
+    def angles(axis, wanted):
+        return [values[axis] for part, seconds, values in readings
+                if seconds >= SETTLE_SECONDS and wanted(*schedule[part][:2])]
+
+    reach, wobble = {}, []
+    for direction in HEAD_TURNS:
+        axis = "sideways" if direction in ("left", "right") else "up_down"
+        resting = angles(axis, lambda kind, who: kind == "rest")
+        held = angles(axis, lambda kind, who: kind == "turn" and who == direction)
+        if not resting or not held:
+            reach[direction] = 0.0
+            continue
+        reach[direction] = abs(float(np.median(held)) - float(np.median(resting)))
+        wobble.append(float(np.std(held)))
+
+    # Left and right must go opposite ways, and so must up and down.
+    # (Someone who can only turn one way cannot reach the whole screen.)
+    sideways = min(reach["left"], reach["right"])
+    up_down = min(reach["up"], reach["down"])
+    steadiness = float(np.mean(wobble)) if wobble else 99.0
+    marks = {
+        "sideways": min(1.0, sideways / FULL_SIDEWAYS_DEGREES),
+        "up_down": min(1.0, up_down / FULL_UP_DOWN_DEGREES),
+        "steady": 1.0 if steadiness <= STEADY_DEGREES
+        else max(0.3, 1.0 - (steadiness - STEADY_DEGREES) * 0.3),
+    }
+    score = 100.0
+    for mark in marks.values():
+        score *= mark
+    return {
+        "score": round(score), "steadiness": round(steadiness, 1),
+        "reach": {direction: round(amount) for direction, amount in reach.items()},
+    }
+
+
+def describe_head(head: dict) -> str:
+    reach = head["reach"]
+    if max(reach.values()) < 3:
+        return "No head movement seen"
+    turns = (f"{reach['left']}° left, {reach['right']}° right, "
+             f"{reach['up']}° up, {reach['down']}° down")
+    return turns + (", steady" if head["steadiness"] <= STEADY_DEGREES * 2 else ", shaky")
 
 
 def score_movements(schedule: list, readings: list) -> list[dict]:
@@ -175,7 +259,7 @@ def describe(result: dict) -> str:
 class AbilityTestScreen(QWidget):
     """The full-screen test. Call add_sample() for every camera frame."""
 
-    finished = Signal(object)   # the list from score_movements()
+    finished = Signal(object)   # {"movements": [...], "head": {...}}
     say = Signal(str)           # an instruction to read aloud
     tone = Signal(str)          # "go" or "stop": play a sound
 
@@ -191,6 +275,7 @@ class AbilityTestScreen(QWidget):
         self.schedule = make_schedule()
         self.readings = []
         self.level = 0.0
+        self.resting_angles = {"sideways": 0.0, "up_down": 0.0}
         self.showFullScreen()
         self.repaint_timer.start()
         self.begin_part(0)
@@ -201,20 +286,37 @@ class AbilityTestScreen(QWidget):
         kind, name, _ = self.schedule[part]
         if kind == "rest":
             self.say.emit("Relax your face and look at the screen.")
+        elif kind == "ready" and name == "head":
+            # The head angles while relaxing are "straight ahead".
+            for axis in self.resting_angles:
+                relaxed = [values[axis] for p, _, values in self.readings if p == 0]
+                self.resting_angles[axis] = float(np.median(relaxed)) if relaxed else 0.0
+            self.say.emit("Next: head movement. Hold each turn until the tone.")
         elif kind == "ready":
             self.say.emit(f"Next: {MOVEMENTS[name][1]}. Hold it until the tone.")
+        elif kind == "turn":
+            self.tone.emit("go")
+            self.say.emit(HEAD_TURNS[name])
         elif kind == "do":
             self.tone.emit("go")
-        elif kind == "relax":
+        elif kind in ("relax", "centre"):
             self.tone.emit("stop")
 
-    def add_sample(self, blendshapes: dict) -> None:
+    def add_sample(self, blendshapes: dict, head_matrix) -> None:
         """Called for every camera frame while the test is showing."""
         elapsed = time.monotonic() - self.part_started
         kind, name, seconds = self.schedule[self.part]
         values = {each: movement_amount(each, blendshapes) for each in MOVEMENTS}
+        values["sideways"], values["up_down"] = head_angles(head_matrix)
         self.readings.append((self.part, elapsed, values))
-        self.level = values[name] if name else 0.0
+
+        # The live meter: the movement being asked for right now.
+        if kind in ("turn", "centre"):
+            axis = "sideways" if name in ("left", "right") else "up_down"
+            self.level = abs(values[axis] - self.resting_angles[axis]) / 20
+        else:
+            self.level = values[name] if name in MOVEMENTS else 0.0
+
         if elapsed < seconds:
             return
         if self.part + 1 < len(self.schedule):
@@ -222,7 +324,26 @@ class AbilityTestScreen(QWidget):
         else:
             self.repaint_timer.stop()
             self.hide()
-            self.finished.emit(score_movements(self.schedule, self.readings))
+            self.finished.emit({
+                "movements": score_movements(self.schedule, self.readings),
+                "head": score_head(self.schedule, self.readings),
+            })
+
+    def words(self, kind: str, name: str) -> tuple[str, str, str]:
+        """The small heading, the big instruction and the hint under it."""
+        if kind == "rest":
+            return "Ability test", "Relax your face", "Just look at the screen"
+        if name == "head":
+            return ("Head movement", "Turn your head when asked",
+                    "Get ready. Hold each turn until the tone")
+        if kind == "turn":
+            return "Head movement", HEAD_TURNS[name], "Now, and hold it"
+        if kind == "centre":
+            return "Head movement", HEAD_TURNS[name], "Back to the middle"
+        names = list(MOVEMENTS)
+        hint = {"ready": "Get ready. Hold it until the tone",
+                "do": "Now, and hold it", "relax": "Relax"}[kind]
+        return f"Movement {names.index(name) + 1} of {len(names)}", MOVEMENTS[name][1], hint
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
@@ -230,16 +351,8 @@ class AbilityTestScreen(QWidget):
         kind, name, seconds = self.schedule[self.part]
         elapsed = min(time.monotonic() - self.part_started, seconds)
         width, height = self.width(), self.height()
-
-        if kind == "rest":
-            small, big, hint = "Ability test", "Relax your face", "Just look at the screen"
-        else:
-            names = list(MOVEMENTS)
-            small = f"Movement {names.index(name) + 1} of {len(names)}"
-            big = MOVEMENTS[name][1]
-            hint = {"ready": "Get ready. Hold it until the tone",
-                    "do": "Now, and hold it",
-                    "relax": "Relax"}[kind]
+        small, big, hint = self.words(kind, name)
+        active = kind in ("do", "turn")  # the patient should be moving now
 
         painter.setPen(QColor(theme.MUTED))
         painter.setFont(theme.font(theme.SANS, 14, bold=True))
@@ -247,8 +360,8 @@ class AbilityTestScreen(QWidget):
         painter.setPen(QColor(theme.INK))
         painter.setFont(theme.font(theme.SERIF, 44))
         painter.drawText(QRectF(0, height * 0.30, width, 110), Qt.AlignCenter, big)
-        painter.setPen(QColor(theme.GREEN if kind == "do" else theme.MUTED))
-        painter.setFont(theme.font(theme.SANS, 22, bold=kind == "do"))
+        painter.setPen(QColor(theme.GREEN if active else theme.MUTED))
+        painter.setFont(theme.font(theme.SANS, 22, bold=active))
         painter.drawText(QRectF(0, height * 0.45, width, 60), Qt.AlignCenter, hint)
 
         # A bar that empties as the time for this part runs out.
@@ -256,12 +369,12 @@ class AbilityTestScreen(QWidget):
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(theme.SAGE))
         painter.drawRoundedRect(bar, 7, 7)
-        painter.setBrush(QColor(theme.GREEN if kind == "do" else theme.SAGE_DEEP))
+        painter.setBrush(QColor(theme.GREEN if active else theme.SAGE_DEEP))
         left = QRectF(bar.left(), bar.top(), bar.width() * (1 - elapsed / seconds), bar.height())
         painter.drawRoundedRect(left, 7, 7)
 
         # A live meter, so the patient can see the camera picking it up.
-        if kind in ("do", "relax"):
+        if kind in ("do", "relax", "turn", "centre"):
             meter = QRectF(width * 0.3, height * 0.66, width * 0.4, 30)
             painter.setBrush(QColor(theme.WHITE))
             painter.setPen(QColor(theme.BORDER))
@@ -278,79 +391,99 @@ class AbilityTestScreen(QWidget):
 
 
 class AbilityResults(Panel):
-    """Shows the scores and lets the patient choose how to click."""
+    """Shows the scores and lets the patient choose how to click and point."""
 
-    chosen = Signal(str, float)  # (movement name, its threshold)
+    chosen = Signal(str, float)   # click with: (movement name, its threshold)
+    pointer_chosen = Signal(str)  # point with: "eyes" or "head"
 
-    def __init__(self, results: list[dict], current: str):
+    def __init__(self, results: dict, current_click: str, current_pointer: str):
         super().__init__("Your results")
-        best = results[0]
+        self.rows.setSpacing(10)
+        movements, head = results["movements"], results["head"]
+        best = movements[0]
         usable = best["score"] >= GOOD_SCORE
-        summary = QLabel(
-            f"{best['label']} was your most reliable movement."
-            if usable else
-            "No movement was clear enough this time. Try again with more light on your face.")
-        summary.setWordWrap(True)
-        summary.setStyleSheet(f"font-size: 22px; color: {theme.MUTED};")
-        self.rows.addWidget(summary)
 
-        for position, result in enumerate(results):
-            self.rows.addWidget(self.result_row(result, top=position == 0 and usable))
+        self.add_heading(
+            "Click with", f"{best['label']} was your most reliable movement."
+            if usable else "No movement was clear enough. Try again with more light.")
+        for position, result in enumerate(movements):
+            self.rows.addWidget(self.result_row(
+                result["label"], result["score"], describe(result),
+                top=position == 0 and usable))
 
-        current_label = MOVEMENTS[current][0]
-        buttons = []
-        if usable and best["name"] != current:
-            buttons.append((f"Use {best['label'].lower()}", "primary",
-                            lambda: self.choose(best["name"], best["threshold"])))
-        buttons.append((f"Keep {current_label.lower()}" if buttons else "Close",
-                        "secondary", self.close))
-        # Wider than the usual buttons, because these labels are long.
+        head_is_good = head["score"] >= GOOD_HEAD_SCORE
+        self.add_heading(
+            "Point with", "Your head movement is good enough to steer the cursor."
+            if head_is_good else "Eye pointing suits you better than head pointing for now.")
+        self.rows.addWidget(self.result_row(
+            "Head pointing", head["score"], describe_head(head), top=head_is_good))
+
+        # One button for each change worth making, then Close.
         row = QHBoxLayout()
         row.setSpacing(14)
         row.addStretch()
-        for text, kind, on_click in buttons:
-            row.addWidget(make_button(text, kind, on_click, 330, 90))
+        if usable and best["name"] != current_click:
+            row.addWidget(self.offer(
+                f"Click with {best['label'].lower()}",
+                lambda: self.chosen.emit(best["name"], best["threshold"])))
+        better_pointer = "head" if head_is_good else "eyes"
+        if better_pointer != current_pointer:
+            row.addWidget(self.offer(
+                f"Point with {better_pointer}",
+                lambda: self.pointer_chosen.emit(better_pointer)))
+        row.addWidget(make_button("Close", "secondary", self.close, 200, 90))
+        self.rows.addSpacing(8)
         self.rows.addLayout(row)
         centre_on_screen(self)
         theme.fade_in(self)
 
-    def result_row(self, result: dict, top: bool) -> QFrame:
+    def add_heading(self, title: str, summary: str) -> None:
+        label = QLabel(f"<span style='font-weight:600; color:{theme.INK};'>{title}</span>"
+                       f"&nbsp;&nbsp;<span style='color:{theme.MUTED};'>{summary}</span>")
+        label.setStyleSheet("font-size: 20px; padding-top: 6px;")
+        self.rows.addWidget(label)
+
+    def offer(self, text: str, on_click):
+        """A wide green button that disappears once it has been used."""
+        def use():
+            button.hide()
+            on_click()
+        button = make_button(text, "primary", use, 350, 90)
+        return button
+
+    def result_row(self, label: str, score: int, note_text: str, top: bool) -> QFrame:
         row = QFrame()
         row.setObjectName("row")
         row.setStyleSheet(
             f"#row {{ background: {theme.WHITE}; border-radius: 16px;"
             f" border: {'3px solid ' + theme.GREEN if top else '1px solid ' + theme.BORDER}; }}")
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(22, 12, 22, 12)
+        layout.setContentsMargins(22, 8, 22, 8)
         layout.setSpacing(18)
 
-        name = QLabel(result["label"])
+        name = QLabel(label)
         name.setFixedWidth(190)
-        name.setStyleSheet("font-size: 22px; font-weight: 600;")
+        name.setStyleSheet("font-size: 21px; font-weight: 600;")
         layout.addWidget(name)
 
         # The score as a bar: a pale track with a green part on top.
         track = QFrame()
-        track.setFixedSize(260, 16)
+        track.setFixedSize(240, 16)
         track.setStyleSheet(f"background: {theme.SAGE}; border-radius: 8px;")
         fill = QFrame(track)
-        fill.setGeometry(0, 0, int(260 * result["score"] / 100), 16)
+        fill.setGeometry(0, 0, int(240 * score / 100), 16)
         fill.setStyleSheet(
             f"background: {theme.GREEN if top else theme.SAGE_DEEP}; border-radius: 8px;")
         layout.addWidget(track)
 
-        score = QLabel(str(result["score"]))
-        score.setFixedWidth(56)
-        score.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        score.setStyleSheet(f"font-size: 24px; font-weight: 700; color: {theme.GREEN};")
-        layout.addWidget(score)
+        number = QLabel(str(score))
+        number.setFixedWidth(56)
+        number.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        number.setStyleSheet(f"font-size: 23px; font-weight: 700; color: {theme.GREEN};")
+        layout.addWidget(number)
 
-        note = QLabel(describe(result))
-        note.setMinimumWidth(300)
+        note = QLabel(note_text)
+        note.setMinimumWidth(360)
         note.setStyleSheet(f"font-size: 18px; color: {theme.MUTED};")
         layout.addWidget(note, 1)
         return row
-
-    def choose(self, name: str, threshold: float) -> None:
-        self.close()
-        self.chosen.emit(name, threshold)

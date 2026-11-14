@@ -54,7 +54,8 @@ class CalibrationScreen(QWidget):
         self.setCursor(Qt.BlankCursor)
         self.repaint_timer = QTimer(self, interval=30, timeout=self.update)
 
-    def start(self) -> None:
+    def start(self, instruction: str = "Look at the dot and keep your head still") -> None:
+        self.instruction = instruction
         self.dot_index = 0
         self.dot_started = time.monotonic()
         self.samples = [[] for _ in DOTS]   # gaze features recorded per dot
@@ -100,7 +101,7 @@ class CalibrationScreen(QWidget):
         painter.setFont(theme.font(theme.SERIF, 24))
         painter.drawText(
             self.rect().adjusted(0, 0, 0, -96), Qt.AlignHCenter | Qt.AlignBottom,
-            "Look at the dot and keep your head still",
+            self.instruction,
         )
         painter.setPen(QColor(theme.MUTED))
         painter.setFont(theme.font(theme.SANS, 13))

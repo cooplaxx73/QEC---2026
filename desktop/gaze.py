@@ -83,6 +83,14 @@ def eyes_closed_amount(face) -> float:
     return min(shapes["eyeBlinkLeft"], shapes["eyeBlinkRight"])
 
 
+# Which of the ten numbers from gaze_features() each way of pointing uses.
+# Head pointing ignores the eyes completely: only the direction of the face.
+POINTER_COLUMNS = {
+    "eyes": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    "head": [6, 7],
+}
+
+
 class GazeMapper:
     """Learns to turn gaze features into a screen position (0 to 1)."""
 
@@ -92,19 +100,22 @@ class GazeMapper:
 
     def __init__(self):
         self.weights = None
+        self.columns = None  # which features to use (see POINTER_COLUMNS)
 
     @property
     def ready(self) -> bool:
         return self.weights is not None
 
-    def fit(self, features: np.ndarray, targets: np.ndarray) -> float:
+    def fit(self, features: np.ndarray, targets: np.ndarray,
+            columns: list = None) -> float:
         """features: one row per sample. targets: matching (x, y) rows.
 
         Returns the expected error as a fraction of the screen (0.05 = 5%).
         """
         # Put every feature on the same scale so none dominates.
-        self.mean = features.mean(axis=0)
-        self.spread = features.std(axis=0) + 1e-6
+        self.columns = columns or list(range(features.shape[1]))
+        self.mean = features[:, self.columns].mean(axis=0)
+        self.spread = features[:, self.columns].std(axis=0) + 1e-6
         inputs = self._prepare(features)
 
         # Honest accuracy test (cross-validation): hide one dot, learn from
@@ -135,7 +146,7 @@ class GazeMapper:
         return float(x), float(y)
 
     def _prepare(self, features: np.ndarray) -> np.ndarray:
-        scaled = (features - self.mean) / self.spread
+        scaled = (features[:, self.columns] - self.mean) / self.spread
         ones = np.ones((len(scaled), 1))  # constant term
         return np.hstack([scaled, ones])
 

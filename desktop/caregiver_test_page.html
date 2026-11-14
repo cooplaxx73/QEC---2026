@@ -28,6 +28,11 @@
 <div><label>Click hold (seconds)</label><input id="click_hold_seconds" value="0.6"></div>
 <div><label>Cursor sensitivity</label><input id="cursor_sensitivity" value="1.0"></div>
 <div><label>Cursor smoothing (0 to 1)</label><input id="cursor_smoothing" value="0.5"></div>
+<div><label>Point with</label>
+  <select id="pointer_mode">
+    <option value="eyes">Eyes</option>
+    <option value="head">Head</option>
+  </select></div>
 <div><label>Click with</label>
   <select id="click_signal">
     <option value="blink">Long blink</option>
@@ -69,7 +74,7 @@ function post(path, data) {
 const NUMBER_SETTINGS = ["click_hold_seconds", "cursor_sensitivity", "cursor_smoothing",
                          "click_signal_threshold"];
 const touched = new Set();
-for (const name of [...NUMBER_SETTINGS, "click_signal"]) {
+for (const name of [...NUMBER_SETTINGS, "click_signal", "pointer_mode"]) {
   document.getElementById(name).addEventListener("change", () => touched.add(name));
 }
 

@@ -4,7 +4,7 @@ Lets a person with ALS control their computer with their eyes, using a normal we
 
 | Action | How |
 |---|---|
-| Move the cursor | Look where you want it to go |
+| Move the cursor | Look where you want it to go, or turn your head if head pointing is on |
 | Left click | Close both eyes for about half a second |
 | Zoom | Look at a target and lean towards the screen. Sit back, then click in the zoomed view |
 | Type | Use the on-screen keyboard |
@@ -98,8 +98,16 @@ also fires by accident during other movements, and whether it tires. The
 patient can then click with the best one (setting `click_signal`). Scores
 go in the progression log.
 
-The caregiver can change the setting and start the test remotely:
-`POST /caregiver/settings` with `{"changes": {"click_signal": "eyebrows"}}`
+The test also asks the patient to turn their head left, right, up and
+down. If they can turn far enough and hold steady, it suggests **head
+pointing** (setting `pointer_mode` = `head`): the cursor follows the
+direction of the face instead of the eyes. The camera measures head
+direction much more precisely than eye direction, so the cursor is
+steadier. Switching between eyes and head starts a new calibration, where
+the patient points their nose at each dot.
+
+The caregiver can change these settings and start the test remotely:
+`POST /caregiver/settings` with `{"changes": {"click_signal": "eyebrows", "pointer_mode": "head"}}`
 and `POST /caregiver/command` with `{"command": "ability_test"}`.
 
 ## Privacy
