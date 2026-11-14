@@ -35,8 +35,9 @@ from gaze import (GazeMapper, OneEuroFilter, eyes_closed_amount, face_size,
                   gaze_features)
 from keyboard import OnScreenKeyboard
 from lighting import LowLightHelper
-from overlay import (INSTRUCTIONS, ButtonBar, ChoicePopup, InstructionsPanel,
-                     SettingsPanel, Toast)
+from overlay import (INSTRUCTIONS, ButtonBar, ChoicePopup, ControlsPanel,
+                     IncomingCallPopup, InstructionsPanel, NotificationsPanel,
+                     Toast)
 from speech import Speaker
 from video_call import VideoWindow, frame_to_jpeg
 from zoom import LeanDetector, ZoomView
@@ -105,19 +106,28 @@ class EyeControl(QObject):
         # Windows
         self.buttons = ButtonBar()
         self.buttons.call_clicked.connect(self.ask_to_call)
-        # Everything except calling is hidden behind the Settings button.
-        self.settings_panel = SettingsPanel(self.settings)
-        self.buttons.settings_clicked.connect(self.settings_panel.toggle)
-        self.settings_panel.setting_changed.connect(self.on_patient_changed_setting)
-        self.settings_panel.instructions_clicked.connect(self.open_instructions)
-        self.settings_panel.keyboard_clicked.connect(self.open_keyboard)
-        self.settings_panel.recalibrate_clicked.connect(self.start_calibration)
-        self.settings_panel.quit_clicked.connect(self.ask_to_quit)
+        # The four overlay buttons and the panels they open.
+        self.keyboard = OnScreenKeyboard()
+        self.keyboard.key_typed.connect(lambda: self.record("key"))
+        self.buttons.keyboard_clicked.connect(self.keyboard.toggle)
+
+        self.controls = ControlsPanel(self.settings)
+        self.buttons.controls_clicked.connect(self.controls.toggle)
+        self.controls.setting_changed.connect(self.on_patient_changed_setting)
+        self.controls.instructions_clicked.connect(self.open_instructions)
+        self.controls.recalibrate_clicked.connect(self.start_calibration)
+        self.controls.quit_clicked.connect(self.ask_to_quit)
         self.instructions = InstructionsPanel()
         self.instructions.read_aloud_clicked.connect(
             lambda: self.speaker.say(" ".join(INSTRUCTIONS)))
-        self.keyboard = OnScreenKeyboard()
-        self.keyboard.key_typed.connect(lambda: self.record("key"))
+
+        self.notifications = NotificationsPanel()
+        self.unread = 0
+        self.buttons.notifications_clicked.connect(self.open_notifications)
+        self.notifications.read_aloud_clicked.connect(self.read_notifications)
+
+        self.incoming_call = IncomingCallPopup()
+        self.incoming_call.answered.connect(self.answer_video)
         self.toast = Toast()
         self.popup = None
         self.zoom = ZoomView()
@@ -146,8 +156,8 @@ class EyeControl(QObject):
     # ----- calibration -----
 
     def start_calibration(self) -> None:
-        for window in (self.buttons, self.settings_panel, self.instructions,
-                       self.keyboard):
+        for window in (self.buttons, self.controls, self.instructions,
+                       self.notifications, self.keyboard):
             window.hide()
         self.calibration.start()
 
@@ -165,7 +175,7 @@ class EyeControl(QObject):
         else:
             self.announce(
                 "Ready, but tracking may be rough. For better accuracy, light "
-                "your face, keep your head still and recalibrate from Settings.",
+                "your face, keep your head still and recalibrate from Controls.",
                 seconds=10)
 
     # ----- every camera frame -----
@@ -251,19 +261,24 @@ class EyeControl(QObject):
     # ----- overlay buttons -----
 
     def open_instructions(self) -> None:
-        self.settings_panel.hide()
+        self.controls.hide()
         self.instructions.toggle()
 
-    def open_keyboard(self) -> None:
-        self.settings_panel.hide()
-        self.keyboard.show()
+    def open_notifications(self) -> None:
+        self.unread = 0
+        self.buttons.set_unread(0)
+        self.notifications.toggle()
 
-    def on_patient_changed_setting(self, name: str, value: float) -> None:
-        """The patient pressed - or + in the Settings panel."""
+    def read_notifications(self) -> None:
+        messages = [message for _, message in self.notifications.newest()]
+        self.speaker.say(" ".join(messages) or "No notifications.")
+
+    def on_patient_changed_setting(self, name: str, value) -> None:
+        """The patient changed something in the Controls panel."""
         setattr(self.settings, name, value)
         save_settings(self.settings)
         self.smoother.set_smoothing(self.settings.cursor_smoothing)
-        self.record("settings_changed", value, note=f"patient set {name}")
+        self.record("settings_changed", note=f"patient set {name} to {value}")
 
     def ask(self, question: str, choices: list[str], on_choice) -> None:
         if self.popup is not None:
@@ -282,7 +297,7 @@ class EyeControl(QObject):
         self.announce("Your caregiver has been notified.")
 
     def ask_to_quit(self) -> None:
-        self.settings_panel.hide()
+        self.controls.hide()
         self.ask("Turn off eye control?", ["Yes, turn off", "Cancel"],
                  lambda choice: self.app.quit() if choice != "Cancel" else None)
 
@@ -293,15 +308,17 @@ class EyeControl(QObject):
         if kind == "settings_changed":
             self.on_settings_changed(event)
         elif kind == "video_request":
-            question = "Your caregiver would like a video call. Turn on your camera?"
-            self.speaker.say(question)
-            self.ask(question, ["Accept", "Decline"],
-                     lambda choice: self.answer_video(choice.lower()))
+            # Ring like a phone until the patient accepts or declines.
+            self.notify("Your caregiver asked for a video call.")
+            self.speaker.say("Your caregiver would like a video call.")
+            self.incoming_call.start_ringing()
         elif kind == "video_started":
+            self.incoming_call.stop_ringing()
             self.link.video_active = True
             self.video.show()
             self.announce("Video call started. Your camera is on.")
         elif kind == "video_ended":
+            self.incoming_call.stop_ringing()
             self.link.video_active = False
             self.link.my_frame = None
             self.video.hide()
@@ -322,7 +339,7 @@ class EyeControl(QObject):
             return
         save_settings(self.settings)
         self.smoother.set_smoothing(self.settings.cursor_smoothing)
-        self.settings_panel.refresh()
+        self.controls.refresh()
         changes = ", ".join(
             f"{name.replace('_', ' ')} is now {value}" for name, value in applied.items())
         self.record("settings_changed", note=changes)
@@ -331,9 +348,17 @@ class EyeControl(QObject):
     # ----- small helpers -----
 
     def announce(self, text: str, seconds: float = 6) -> None:
-        """Tell the patient something on screen and out loud."""
+        """Tell the patient something on screen and out loud, and keep it."""
         self.toast.show_message(text, seconds)
         self.speaker.say(text)
+        self.notify(text)
+
+    def notify(self, text: str) -> None:
+        """Add a message to the Notifications panel and count it as unread."""
+        self.notifications.add(time.strftime("%H:%M"), text)
+        if not self.notifications.isVisible():
+            self.unread += 1
+            self.buttons.set_unread(self.unread)
 
     def record(self, kind: str, value: float = 0.0, note: str = "") -> None:
         """Save to the local log and send a copy to the backend."""
