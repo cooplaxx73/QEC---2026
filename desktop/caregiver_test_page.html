@@ -39,6 +39,7 @@
 <div><label>Movement strength (0 to 1)</label><input id="click_signal_threshold" value="0.4"></div>
 <button onclick="sendSettings()">Send settings</button>
 <button onclick="command('ability_test')">Run ability test on patient</button>
+<div id="sendNote" style="color:#555; margin-top:4px"></div>
 
 <h3>Video call: <span id="videoState">off</span></h3>
 <button onclick="video('request')">Request video</button>
@@ -63,14 +64,26 @@ function post(path, data) {
   return fetch(path, { method: "POST", body: JSON.stringify(data) });
 }
 
+// Only the settings you touched are sent, so changing one thing never
+// overwrites the others (for example the movement the ability test chose).
+const NUMBER_SETTINGS = ["click_hold_seconds", "cursor_sensitivity", "cursor_smoothing",
+                         "click_signal_threshold"];
+const touched = new Set();
+for (const name of [...NUMBER_SETTINGS, "click_signal"]) {
+  document.getElementById(name).addEventListener("change", () => touched.add(name));
+}
+
 function sendSettings() {
   const changes = {};
-  for (const name of ["click_hold_seconds", "cursor_sensitivity", "cursor_smoothing",
-                      "click_signal_threshold"]) {
-    changes[name] = Number(document.getElementById(name).value);
+  for (const name of touched) {
+    const value = document.getElementById(name).value;
+    changes[name] = NUMBER_SETTINGS.includes(name) ? Number(value) : value;
   }
-  changes.click_signal = document.getElementById("click_signal").value;
+  const note = document.getElementById("sendNote");
+  if (touched.size === 0) { note.textContent = "Nothing changed yet."; return; }
   post("/caregiver/settings", { changes: changes, by: "Test caregiver" });
+  note.textContent = "Sent: " + [...touched].join(", ");
+  touched.clear();
 }
 
 function command(name) { post("/caregiver/command", { command: name, by: "Test caregiver" }); }
