@@ -28,8 +28,8 @@ PANEL_STYLE = "background: #101820; color: white; font-size: 20px;"
 INSTRUCTIONS = [
     "Move the cursor: look where you want it to go.",
     "Click: close both eyes for about half a second, then open them.",
-    "Zoom: lean towards the screen while looking at a target. "
-    "Lean back to cancel.",
+    "Zoom: look at a target and lean towards the screen. "
+    "Then sit back and click in the zoomed view.",
     "Type: open the keyboard from this panel.",
     "Call Caregiver sends a message to your caregiver's phone.",
     "Your camera is never shared unless you accept a video call.",
