@@ -37,7 +37,8 @@ from gaze import (GazeMapper, OneEuroFilter, eyes_closed_amount, face_size,
                   gaze_features)
 from keyboard import OnScreenKeyboard
 from lighting import LowLightHelper
-from overlay import INSTRUCTIONS, ButtonBar, ChoicePopup, InstructionsPanel, Toast
+from overlay import (INSTRUCTIONS, ButtonBar, ChoicePopup, InstructionsPanel,
+                     SettingsPanel, Toast)
 from speech import Speaker
 from video_call import VideoWindow, frame_to_jpeg
 from zoom import LeanDetector, ZoomView
@@ -103,15 +104,19 @@ class EyeControl(QObject):
         # Windows
         self.buttons = ButtonBar()
         self.buttons.call_clicked.connect(self.ask_to_call)
+        # Everything except calling is hidden behind the Settings button.
+        self.settings_panel = SettingsPanel(self.settings)
+        self.buttons.settings_clicked.connect(self.settings_panel.toggle)
+        self.settings_panel.setting_changed.connect(self.on_patient_changed_setting)
+        self.settings_panel.instructions_clicked.connect(self.open_instructions)
+        self.settings_panel.keyboard_clicked.connect(self.open_keyboard)
+        self.settings_panel.recalibrate_clicked.connect(self.start_calibration)
+        self.settings_panel.quit_clicked.connect(self.ask_to_quit)
         self.instructions = InstructionsPanel()
-        self.buttons.instructions_clicked.connect(self.instructions.toggle)
         self.instructions.read_aloud_clicked.connect(
             lambda: self.speaker.say(" ".join(INSTRUCTIONS)))
-        self.instructions.recalibrate_clicked.connect(self.start_calibration)
-        self.instructions.quit_clicked.connect(self.ask_to_quit)
         self.keyboard = OnScreenKeyboard()
         self.keyboard.key_typed.connect(lambda: self.record("key"))
-        self.instructions.keyboard_clicked.connect(self.open_keyboard)
         self.toast = Toast()
         self.popup = None
         self.zoom = ZoomView()
@@ -138,7 +143,8 @@ class EyeControl(QObject):
     # ----- calibration -----
 
     def start_calibration(self) -> None:
-        for window in (self.buttons, self.instructions, self.keyboard):
+        for window in (self.buttons, self.settings_panel, self.instructions,
+                       self.keyboard):
             window.hide()
         self.calibration.start()
 
@@ -234,9 +240,20 @@ class EyeControl(QObject):
 
     # ----- overlay buttons -----
 
+    def open_instructions(self) -> None:
+        self.settings_panel.hide()
+        self.instructions.toggle()
+
     def open_keyboard(self) -> None:
-        self.instructions.hide()
+        self.settings_panel.hide()
         self.keyboard.show()
+
+    def on_patient_changed_setting(self, name: str, value: float) -> None:
+        """The patient pressed - or + in the Settings panel."""
+        setattr(self.settings, name, value)
+        save_settings(self.settings)
+        self.smoother.set_smoothing(self.settings.cursor_smoothing)
+        self.record("settings_changed", value, note=f"patient set {name}")
 
     def ask(self, question: str, choices: list[str], on_choice) -> None:
         if self.popup is not None:
@@ -255,7 +272,7 @@ class EyeControl(QObject):
         self.announce("Your caregiver has been notified.")
 
     def ask_to_quit(self) -> None:
-        self.instructions.hide()
+        self.settings_panel.hide()
         self.ask("Turn off eye control?", ["Yes, turn off", "Cancel"],
                  lambda choice: self.app.quit() if choice != "Cancel" else None)
 
@@ -295,6 +312,7 @@ class EyeControl(QObject):
             return
         save_settings(self.settings)
         self.smoother.set_smoothing(self.settings.cursor_smoothing)
+        self.settings_panel.refresh()
         changes = ", ".join(
             f"{name.replace('_', ' ')} is now {value}" for name, value in applied.items())
         self.record("settings_changed", note=changes)
