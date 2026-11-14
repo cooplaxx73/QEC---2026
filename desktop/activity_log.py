@@ -1,8 +1,8 @@
 """
 Patient progression log.
 
-Stores WHEN actions happen and HOW (for example how long a blink was held),
-never WHAT was typed or clicked on. Doctors can use the daily totals to see
+Stores sampled gaze/cursor coordinates, click positions, timing and action
+types, never typed text or screen contents. Daily totals can illustrate
 how motor control changes over time. For example:
 - blink hold time getting longer or less consistent
 - zoom being needed more often
@@ -14,6 +14,7 @@ Written with the assistance of Claude Code (Anthropic).
 
 import sqlite3
 import time
+import json
 from pathlib import Path
 
 LOG_FILE = Path(__file__).parent / "activity_log.db"
@@ -26,12 +27,15 @@ class ActivityLog:
             "CREATE TABLE IF NOT EXISTS events ("
             " time REAL, kind TEXT, value REAL, note TEXT)"
         )
+        if 'details' not in [row[1] for row in self.database.execute('PRAGMA table_info(events)')]:
+            self.database.execute("ALTER TABLE events ADD COLUMN details TEXT NOT NULL DEFAULT '{}'")
+            self.database.commit()
 
-    def record(self, kind: str, value: float = 0.0, note: str = "") -> dict:
+    def record(self, kind: str, value: float = 0.0, note: str = "", details=None) -> dict:
         """Save one event, e.g. record("click", 0.72) for a 0.72 s blink."""
-        event = {"time": time.time(), "kind": kind, "value": value, "note": note}
+        event = {"time": time.time(), "kind": kind, "value": value, "note": note, "details": details or {}}
         self.database.execute(
-            "INSERT INTO events VALUES (:time, :kind, :value, :note)", event)
+            "INSERT INTO events (time, kind, value, note, details) VALUES (:time, :kind, :value, :note, :details)", {**event, "details": json.dumps(event['details'])})
         self.database.commit()
         return event
 

@@ -1,0 +1,95 @@
+<!-- Purpose: Provide the single-login SignalSpeak mobile app prototype and screen structure. -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#eef4ef">
+  <meta name="description" content="SignalSpeak care companion app prototype.">
+  <meta name="application-name" content="SignalSpeak">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="SignalSpeak">
+  <title>SignalSpeak · Care, connected</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="script.js"></script>
+</head>
+<body>
+  <section class="login-wrap" id="login-screen">
+    <div class="login-art" aria-hidden="true"><div class="sun"></div><div class="hill hill-back"></div><div class="hill hill-front"></div><span class="art-caption">Care, connected.</span></div>
+    <div class="login-card">
+      <a class="wordmark" href="#" aria-label="SignalSpeak home"><span class="mark">s</span> SignalSpeak</a>
+      <p class="eyebrow">A CALMER WAY TO CONNECT</p>
+      <h1>Welcome back.</h1>
+      <p class="muted">Sign in to your care space.</p>
+      <form id="login-form">
+        <label for="username">Email address</label>
+        <input id="username" name="email" type="email" autocomplete="username" placeholder="Your account email" required>
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required>
+        <button class="button primary full" type="submit">Sign in <span>→</span></button>
+      <p id="login-error" role="alert"></p></form><p><a href="/#start">Create an account on the website →</a></p>
+      <p class="login-note"><span class="lock-icon">⌑</span> Your personal account. Your approved care circle.</p>
+      <p class="demo-note">Use the account you created on the website.</p>
+    </div>
+  </section>
+
+  <div class="app-shell" id="app-screen" hidden>
+    <aside class="rail">
+      <a class="wordmark" href="#home" aria-label="SignalSpeak"><span class="mark">s</span><span>SignalSpeak</span></a>
+      <div class="rail-label">YOUR SPACE</div>
+      <nav class="side-nav" aria-label="Main navigation">
+        <button class="nav-item active" data-view="home"><span class="nav-icon">⌂</span><span>Home</span></button>
+        <button class="nav-item" data-view="settings"><span class="nav-icon">☷</span><span>Settings</span></button>
+        <button class="nav-item" data-view="logs"><span class="nav-icon">◷</span><span>Activity log</span></button>
+        <button class="nav-item" data-view="guide"><span class="nav-icon">ⓘ</span><span>Instructions</span></button>
+      </nav>
+      <div class="rail-bottom"><div class="avatar">S</div><div><strong>Your account</strong><small>Care space</small></div><button class="icon-button signout" id="signout" aria-label="Sign out">↗</button></div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar"><div class="mobile-brand"><span class="mark">s</span> SignalSpeak</div><button class="dashboard-back" id="dashboard-back" data-view="home" hidden>← <span>Back to dashboard</span></button><div class="top-context">Your care space <span class="dot"></span> Just you and your circle</div><div class="account-area"><button class="profile-chip" id="profile-menu-toggle" aria-expanded="false" aria-controls="account-menu"><span class="avatar small">S</span><span>Your account</span><span class="chevron">⌄</span></button><div class="account-menu" id="account-menu" hidden><span>Signed in to the shared account</span><button id="signout-menu">↗ <span>Sign out</span></button></div></div></header>
+      <div class="content"><section class="surface patient-context"><label for="patient-picker">Selected patient</label><select id="patient-picker"></select><span id="desktop-status">Checking desktop…</span><a href="/#account">Manage care connections</a></section><p id="connection-error" role="alert"></p>
+        <section class="view active" id="view-home">
+          <div class="page-intro home-intro"><p class="eyebrow">YOUR CARE SPACE</p><h1>Stay close<span class="period">.</span></h1></div>
+          <div class="home-stack">
+            <section class="surface call-card"><div class="call-illustration"><span>♡</span><i></i></div><p class="eyebrow">HERE WHEN YOU NEED</p><h2>Reach your care circle</h2><p class="muted">Send a connection request to the patient’s desktop. Video transport is not enabled in this integrated demo.</p><button class="button primary" data-open="camera-modal">Request a connection <span>→</span></button></section>
+            <section class="surface privacy-card"><div class="privacy-card-heading"><div class="metric-icon sage">♧</div><div><p class="eyebrow">YOUR PRIVACY</p><h2>You’re in control</h2></div></div><p>This integrated demo sends connection notifications only. Camera and microphone calls are not enabled.</p><div class="privacy-devices"><span>Camera <b>Off</b></span><span>Microphone <b>Off</b></span></div></section>
+            <div class="home-shortcuts"><button class="shortcut-button" data-view="settings"><span class="shortcut-icon">☷</span><span><strong>Settings</strong><small>Adjust your controls</small></span><b>→</b></button><button class="shortcut-button" data-view="logs"><span class="shortcut-icon">◷</span><span><strong>Activity log</strong><small>Review shared activity</small></span><b>→</b></button></div>
+          </div>
+        </section>
+
+        <section class="view" id="view-settings">
+          <div class="page-intro"><p class="eyebrow">MAKE IT YOURS</p><h1>Settings</h1><p class="muted">Changes are saved for the selected patient and delivered when their desktop is connected.</p></div>
+          <div class="settings-layout"><div class="settings-main" id="integrated-settings"></div><aside class="surface settings-aside"><div class="aside-icon">✳</div><h3>Personal controls</h3><p>These controls match the connected desktop implementation. Saving queues a change; desktop status shows whether it is reachable.</p><div class="change-note"><span>◷</span><span><strong>Changes are logged</strong><small>Your own account name is recorded with every change.</small></span></div><button class="text-button" data-view="logs">View activity log →</button></aside></div>
+        </section>
+
+
+        <section class="view" id="view-logs">
+          <div class="page-intro logs-intro"><div><p class="eyebrow">OPEN AND TRANSPARENT</p><h1>Activity log</h1><p class="muted">A shared record of actions and changes in your care space.</p></div><button class="button soft" id="export-logs">↓ <span>Export JSON</span></button></div>
+          <div class="log-summary"><div><strong>Today’s activity</strong><span>Patient activity requires logging consent. Caregiver changes are audited.</span></div><div class="summary-stat"><b id="event-count">6</b><small>recorded events</small></div></div>
+          <section class="surface telemetry-panel"><div class="chart-heading"><div><p class="eyebrow">PATIENT INTERACTION</p><h2>Where attention goes</h2></div><span class="sample-tag">ESTIMATED GAZE · 2 HZ</span></div><p>Screen-position estimates, not a recording of screen contents. Darker areas contain more gaze samples; circles mark recent clicks.</p><div id="logging-choice"></div><div class="telemetry-metrics" id="telemetry-metrics"></div><div class="gaze-screen" id="gaze-screen" role="img" aria-label="Estimated gaze density across the patient's screen"><div class="gaze-grid" id="gaze-grid"></div><div id="click-markers"></div></div><p id="latest-gaze" class="chart-footnote"></p><p class="chart-footnote">Retains up to 20,000 patient events. Older local desktop records remain in its SQLite log. No screenshots, video, page contents or typed text are collected.</p></section><div class="log-insights">
+            <section class="surface chart-card weekly-card"><div class="chart-heading"><div><p class="eyebrow">LAST 7 DAYS</p><h2>Activity over time</h2></div><span class="sample-tag">RECORDED ACTIVITY</span></div><div class="weekly-chart" role="img" aria-label="Recorded activity across the last seven days"><div class="y-labels"><span>40</span><span>20</span><span>0</span></div><div class="chart-days"><div class="day-column"><div class="bar-stack"><i class="bar-click"></i><i class="bar-gesture"></i><i class="bar-setting"></i><i class="bar-privacy"></i></div><small>Mon</small></div><div class="day-column"><div class="bar-stack"><i class="bar-click"></i><i class="bar-gesture"></i><i class="bar-setting"></i><i class="bar-privacy"></i></div><small>Tue</small></div><div class="day-column"><div class="bar-stack"><i class="bar-click"></i><i class="bar-gesture"></i><i class="bar-setting"></i><i class="bar-privacy"></i></div><small>Wed</small></div><div class="day-column"><div class="bar-stack"><i class="bar-click"></i><i class="bar-gesture"></i><i class="bar-setting"></i><i class="bar-privacy"></i></div><small>Thu</small></div><div class="day-column"><div class="bar-stack"><i class="bar-click"></i><i class="bar-gesture"></i><i class="bar-setting"></i><i class="bar-privacy"></i></div><small>Fri</small></div><div class="day-column"><div class="bar-stack"><i class="bar-click"></i><i class="bar-gesture"></i><i class="bar-setting"></i><i class="bar-privacy"></i></div><small>Sat</small></div><div class="day-column today-column"><div class="bar-stack"><i class="bar-click"></i><i class="bar-gesture"></i><i class="bar-setting"></i><i class="bar-privacy"></i></div><small>Sun</small></div></div></div><div class="chart-legend"><span><i class="bar-click"></i>Clicks</span><span><i class="bar-gesture"></i>Gestures</span><span><i class="bar-setting"></i>Settings</span><span><i class="bar-privacy"></i>Privacy</span></div></section>
+            <section class="surface chart-card breakdown-card"><div class="chart-heading"><div><p class="eyebrow">ACTIVITY MIX</p><h2>By category</h2></div><span class="sample-tag">RECORDED ACTIVITY</span></div><div class="donut-layout"><div class="donut-chart" id="category-donut" role="img" aria-label="Activity breakdown by category"><div><strong id="donut-total">6</strong><small>events</small></div></div><div class="donut-legend"><div><i class="legend-computer"></i><span>Computer actions</span><b id="count-computer">4</b></div><div><i class="legend-settings"></i><span>Settings</span><b id="count-settings">1</b></div><div><i class="legend-privacy"></i><span>Access &amp; privacy</span><b id="count-privacy">1</b></div></div></div><p class="chart-footnote">Counts reflect recorded activity and audit entries for the selected patient.</p></section>
+          </div>
+          <div class="log-filters"><button class="filter active" data-category="all">All activity <span>6</span></button><button class="filter" data-category="computer">Computer actions</button><button class="filter" data-category="gaze">Gaze</button><button class="filter" data-category="click">Clicks</button><button class="filter" data-category="settings">Settings</button><button class="filter" data-category="privacy">Access &amp; privacy</button><select aria-label="Filter by date"><option>Today</option><option>Last 7 days</option><option>All activity</option></select></div>
+          <div class="surface log-table"><div class="log-table-head"><span>ACTIVITY</span><span>TIME</span><span>SOURCE</span></div><div id="log-entries"><article class="log-entry"><span class="log-event"><i class="event-icon click-event">↖</i><span><strong>Left click</strong><small>Computer action · Button activated</small></span></span><time>10:42:18 AM</time><span class="source-tag">Laptop</span></article><article class="log-entry"><span class="log-event"><i class="event-icon setting-event">☷</i><span><strong>Cursor sensitivity changed</strong><small>Setting · 65% → 68%</small></span></span><time>10:38:04 AM</time><span class="source-tag phone-tag">Phone</span></article><article class="log-entry"><span class="log-event"><i class="event-icon click-event">↗</i><span><strong>Right click</strong><small>Computer action · Context menu opened</small></span></span><time>10:31:52 AM</time><span class="source-tag">Laptop</span></article><article class="log-entry"><span class="log-event"><i class="event-icon privacy-event">♧</i><span><strong>Camera access request approved</strong><small>Privacy · Video call requested</small></span></span><time>10:20:11 AM</time><span class="source-tag phone-tag">Phone</span></article><article class="log-entry"><span class="log-event"><i class="event-icon click-event">⌁</i><span><strong>Cursor moved</strong><small>Computer action · 4.2 seconds</small></span></span><time>10:16:07 AM</time><span class="source-tag">Laptop</span></article><article class="log-entry"><span class="log-event"><i class="event-icon click-event">◉</i><span><strong>Double blink</strong><small>Gesture · Select action</small></span></span><time>10:12:33 AM</time><span class="source-tag">Laptop</span></article></div><div class="log-more"><button class="text-button" id="load-earlier">Load earlier patient activity ↓</button><p id="log-page-status"></p><p>Entries are read-only.</p></div></div>
+          <div class="export-note"><span>♧</span><span><strong>Your records stay yours.</strong> Activity can be viewed here or downloaded as a JSON file.</span><span>Deletion is not available in this demo.</span></div>
+        </section>
+
+        <section class="view" id="view-guide">
+          <div class="page-intro"><p class="eyebrow">HERE TO HELP</p><h1>Instructions</h1><p class="muted">A gentle guide to the tools in your care space.</p></div>
+          <div class="guide-layout"><div class="guide-list surface"><p class="eyebrow">GETTING STARTED</p><button class="guide-link selected"><span class="guide-number">01</span><span><strong>Getting to know your dashboard</strong><small>Connection, controls, and help</small></span><span>→</span></button><button class="guide-link"><span class="guide-number">02</span><span><strong>Using eye movement</strong><small>Move and select comfortably</small></span><span>→</span></button><button class="guide-link"><span class="guide-number">03</span><span><strong>Blink actions</strong><small>Select with a comfortable blink</small></span><span>→</span></button><button class="guide-link"><span class="guide-number">04</span><span><strong>Head movement</strong><small>Navigate with small movements</small></span><span>→</span></button><button class="guide-link"><span class="guide-number">05</span><span><strong>Asking for help</strong><small>Reach your circle when you need them</small></span><span>→</span></button><button class="guide-link"><span class="guide-number">06</span><span><strong>Privacy and video calls</strong><small>Approve camera and microphone access</small></span><span>→</span></button></div><article class="surface guide-article"><div class="guide-hero">✳</div><p class="eyebrow">YOUR HOME BASE</p><h2>Getting to know your dashboard</h2><p>Your dashboard gives you a quick view of your connection and movement controls. It’s a simple place to see what’s ready and reach the tools you use most.</p><h3>Your connection</h3><p>When your computer is connected, you’ll see its status near the top of Home. If it isn’t connected, your settings and help options will be ready when it reconnects.</p><h3>Quick access</h3><p>Use the navigation at the bottom of your phone to open Settings, your Activity log, or Instructions. Tap <b>Ask for help</b> whenever you want to let your circle know you need them.</p><div class="guide-tip"><span>✦</span><span><strong>Take your time.</strong> Settings can be adjusted to what feels comfortable for you.</span></div><button class="button soft">Next: Eye movement <span>→</span></button></article></div>
+        </section>
+      </div>
+      <nav class="bottom-nav" aria-label="Main navigation">
+        <button class="bottom-item active" data-view="home"><span>⌂</span><small>Home</small></button><button class="bottom-item" data-view="settings"><span>☷</span><small>Settings</small></button><button class="bottom-item" data-view="logs"><span>◷</span><small>Activity</small></button><button class="bottom-item" data-view="guide"><span>ⓘ</span><small>Guide</small></button>
+      </nav>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="camera-modal" hidden><section class="modal" role="dialog" aria-modal="true" aria-labelledby="camera-title"><button class="modal-close" data-close aria-label="Close">×</button><div class="modal-icon camera-icon">◉</div><p class="eyebrow">YOUR PRIVACY COMES FIRST</p><h2 id="camera-title">Request a connection</h2><p>Send a notification to the patient’s desktop. This demo does not start video or microphone access.</p><div class="permission-row"><span>▣</span><span><strong>Camera</strong><small>Approval needed before it turns on</small></span><b>Off</b></div><div class="permission-row"><span>◖</span><span><strong>Microphone</strong><small>Approval needed before it turns on</small></span><b>Off</b></div><button class="button primary full" id="send-call-request">Send connection request <span>→</span></button><small class="modal-footnote">You can say no or end access at any time.</small></section></div>
+  <div class="modal-backdrop" id="delete-modal" hidden><section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="delete-title"><button class="modal-close" data-close aria-label="Close">×</button><div class="modal-icon delete-icon">⌑</div><p class="eyebrow">PROTECT YOUR RECORDS</p><h2 id="delete-title">Request log deletion</h2><p>Enter the account password to continue. This is a visual prototype; no log data will be deleted.</p><label for="delete-password">Account password</label><input id="delete-password" type="password" placeholder="Enter password"><button class="button primary full" id="confirm-delete">Continue <span>→</span></button></section></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

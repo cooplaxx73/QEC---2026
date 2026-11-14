@@ -1,89 +1,75 @@
+"""Authenticated desktop adapter. Original architecture: desktop teammate.
+Integration assistance: OpenAI Codex. Uses Requests and PySide6.
+Run connect.py once before starting the desktop application.
 """
-Connection between the patient's computer and the caregiver backend.
-
-Runs on a background thread so a slow network never freezes the cursor.
-- Sends: calls, video answers, log entries and (only during an accepted
-  video call) camera frames.
-- Receives: events such as "settings changed" or "video call requested".
-
-The backend address is in config.py. Until the real backend exists it
-talks to stub_server.py. The web addresses used are listed in that file.
-
-Libraries:
-- Requests for HTTP: https://requests.readthedocs.io
-- PySide6 signals to hand results to the main thread: https://doc.qt.io/qtforpython-6/
-
-Written with the assistance of Claude Code (Anthropic).
-"""
-
+import json
 import queue
 import threading
 import time
-
+from pathlib import Path
 import requests
 from PySide6.QtCore import QObject, Signal
 
-POLL_SECONDS = 1.0     # how often to ask for new events
-FRAME_SECONDS = 0.12   # time between video frames during a call
-TIMEOUT = 2            # seconds before giving up on one request
-
+DEVICE_FILE = Path(__file__).parent / "device.json"
 
 class CaregiverLink(QObject):
-    event_received = Signal(dict)    # an event from the caregiver side
-    frame_received = Signal(bytes)   # one JPEG picture of the caregiver
+    event_received = Signal(dict)
+    frame_received = Signal(bytes)
 
     def __init__(self, backend_url: str):
         super().__init__()
-        self.url = backend_url.rstrip("/")
-        self.outbox = queue.Queue()
-        self.last_event_id = None    # None until the first check
-        self.video_active = False    # True only after BOTH sides accepted
-        self.my_frame = None         # newest JPEG of the patient camera
+        self.device = json.loads(DEVICE_FILE.read_text(encoding="utf-8"))
+        self.url = self.device["backend_url"].rstrip("/") + "/api/device"
+        self.http = requests.Session()
+        self.http.headers["Authorization"] = "Bearer " + self.device["deviceToken"]
+        self.outbox = queue.Queue(maxsize=500)
+        self.last_event_id = 0
+        self.video_active = False
+        self.my_frame = None
         self.running = True
+        self.pending = None
+
+    def start(self):
         threading.Thread(target=self._run, daemon=True).start()
 
-    def send(self, path: str, data: dict) -> None:
-        """Queue a message for the backend. Returns straight away."""
-        self.outbox.put((path, data))
+    def send(self, path, data):
+        try:
+            self.outbox.put_nowait((path, data))
+        except queue.Full:
+            self.event_received.emit({"type": "connection_error", "message": "Some activity could not be queued. Check the server connection."})
 
-    def stop(self) -> None:
+    def stop(self):
         self.running = False
 
-    def _run(self) -> None:
-        next_poll = 0.0
+    def _run(self):
+        bootstrapped = False
         while self.running:
             try:
-                self._send_waiting_messages()
-                if time.monotonic() >= next_poll:
-                    self._fetch_events()
-                    next_poll = time.monotonic() + POLL_SECONDS
-                if self.video_active:
-                    self._swap_video_frames()
-            except requests.RequestException:
-                time.sleep(POLL_SECONDS)  # backend not reachable, try again later
-            time.sleep(FRAME_SECONDS if self.video_active else 0.2)
-
-    def _send_waiting_messages(self) -> None:
-        while not self.outbox.empty():
-            path, data = self.outbox.get()
-            requests.post(self.url + path, json=data, timeout=TIMEOUT)
-
-    def _fetch_events(self) -> None:
-        reply = requests.get(
-            self.url + "/patient/events",
-            params={"after": self.last_event_id or 0}, timeout=TIMEOUT,
-        )
-        # Events from before this program started are old news: skip them.
-        is_first_check = self.last_event_id is None
-        self.last_event_id = self.last_event_id or 0
-        for event in reply.json():
-            self.last_event_id = event["id"]
-            if not is_first_check:
-                self.event_received.emit(event)
-
-    def _swap_video_frames(self) -> None:
-        if self.my_frame is not None:
-            requests.post(self.url + "/patient/frame", data=self.my_frame, timeout=TIMEOUT)
-        reply = requests.get(self.url + "/caregiver/frame", timeout=TIMEOUT)
-        if reply.status_code == 200 and reply.content:
-            self.frame_received.emit(reply.content)
+                if not bootstrapped:
+                    state = self.http.get(self.url + "/bootstrap", timeout=3)
+                    state.raise_for_status()
+                    data = state.json()
+                    self.last_event_id = data["eventCursor"]
+                    self.event_received.emit({"type": "integration_ready", **data})
+                    bootstrapped = True
+                response = self.http.get(self.url + "/patient/events", params={"after": self.last_event_id}, timeout=3)
+                response.raise_for_status()
+                for event in response.json():
+                    self.last_event_id = max(self.last_event_id, event["id"])
+                    self.event_received.emit(event)
+                for _ in range(20):
+                    if self.pending is None:
+                        try:
+                            self.pending = self.outbox.get_nowait()
+                        except queue.Empty:
+                            break
+                    route, data = self.pending
+                    result = self.http.post(self.url + route, json=data, timeout=3)
+                    result.raise_for_status()
+                    self.pending = None
+                    if route == "/patient/call":
+                        self.event_received.emit({"type": "call_delivered"})
+            except (requests.RequestException, ValueError):
+                self.event_received.emit({"type": "connection_error", "message": "Care server unavailable. Requests will retry; eye control continues."})
+                time.sleep(2)
+            time.sleep(1)

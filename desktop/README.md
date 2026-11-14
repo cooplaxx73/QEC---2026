@@ -1,120 +1,116 @@
-# Desktop overlay (patient program)
+# SignalSpeak desktop (patient program)
 
-Lets a person with ALS control their computer with their eyes, using a normal webcam.
+Lets a person with ALS control their computer with their eyes or head, using a normal webcam. It signs in to the SignalSpeak care server as the patient, so an approved caregiver can adjust it from the phone dashboard.
+
+Original desktop implementation: `action-implementation` branch, written with the assistance of Claude Code (Anthropic). Integration adapter and pairing flow: OpenAI Codex assistance. The attribution is kept in each source file.
 
 | Action | How |
 |---|---|
 | Move the cursor | Look where you want it to go, or turn your head if head pointing is on |
-| Left click | Close both eyes for about half a second |
+| Click | Close both eyes for about half a second, or use the movement the ability test chose |
 | Zoom | Look at a target and lean towards the screen. Sit back, then click in the zoomed view |
 | Type | Use the on-screen keyboard |
-| Click with another movement | Settings, then the Ability test tab, finds your most reliable face movement |
+| Find your best movement | Settings, then the Ability test tab |
 | Pause eye control | Press F8 (for a helper) |
-| Use the mouse | Just move it. Eye movement, blink clicks and lean-to-zoom pause, and return 2 seconds after the mouse stops |
+| Use the mouse | Just move it. Eye movement, clicks and lean-to-zoom pause, and return 2 seconds after the mouse stops |
 | Quit | Press F9, or Settings then the Turn off tab |
 
-Four icon buttons stay on screen: **Call Caregiver** (phone), **Keyboard**, **Settings** (gear) and **Notifications** (bell). Settings is one window with tabs: Instructions, Recalibrate, Ability test and Turn off. An incoming video call pops up and rings; the camera picture only appears after both sides accept. A short beep confirms each click.
+Four icon buttons stay on screen: **Call Caregiver** (phone), **Keyboard**, **Settings** (gear) and **Notifications** (bell). Settings is one window with tabs: Instructions, Recalibrate, Ability test and Turn off. A short beep confirms each click.
 
 ## Setup
 
-Needs Python 3.11 and a webcam. Works on Windows, macOS and Linux.
+Requires Python 3.11, a webcam and the central Node account server running on the laptop (default http://127.0.0.1:3000). See the README in the repository root for the server.
 
-```bash
-cd desktop
+Create the patient account on the website and accept privacy. The optional logging choice controls local patient activity collection and transmission. Caregiver audit entries are separate.
+
+From this folder on Windows:
+
+```sh
 python -m venv .venv
-.venv\Scripts\activate        # macOS/Linux: source .venv/bin/activate
+.venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-## Run
-
-```bash
-python stub_server.py         # stand-in caregiver backend (optional)
+python connect.py
 python main.py
 ```
 
-The first run downloads the MediaPipe face model (about 4 MB).
+On macOS/Linux, activate with `source .venv/bin/activate` instead. `connect.py` asks for the patient account's email/password and saves an authenticated device token in `device.json`; it does not save the password. Pairing again invalidates the old token. Do not share this file or commit it to Git.
 
-To try the overlay layout with a mouse before starting eye tracking:
+After the environment setup and pairing are complete, Windows users can double-click **Start SignalSpeak.vbs** instead of opening a terminal. It uses the virtual environment's windowed Python. Launch failures are written to `startup.log` and shown in a message box. Keep the central server running.
 
-```bash
+The first launch downloads the MediaPipe face model (about 4 MB). This source package is not a standalone installer.
+
+To try the overlay layout with a mouse, without a webcam or server:
+
+```sh
 python preview_overlay.py
 ```
 
-The preview uses no webcam or backend, and simulates caregiver calls. The
-on-screen keyboard still types into the foreground app. Press F9 or use
-Settings > Turn off to close it.
+## Ability test: click and point with what works best
 
-## Checks
+ALS affects different muscles in different people and changes over time. The test (about 95 seconds) asks for five movements (close eyes, raise eyebrows, open mouth, smile, pucker lips), three times each. It scores each one on whether it happened, how strong and fast it was, whether it also fires by accident during other movements, and whether it tires. The patient can then click with the best one (setting `click_signal`).
 
-From `desktop`, with the virtual environment active:
+The test also asks the patient to turn their head left, right, up and down. If they can turn far enough and hold steady, it suggests **head pointing** (setting `pointer_mode` = `head`): the cursor follows the direction of the face instead of the eyes. The camera measures head direction much more precisely than eye direction, so the cursor is steadier. Switching between eyes and head starts a new calibration, where the patient points their nose at each dot.
 
-```bash
-python -m unittest discover -s tests -v
-```
+The patient's choices are sent to the care server, so the phone dashboard shows them and they survive a restart. A caregiver can also change them, or start the test remotely, from the phone dashboard.
 
-The tracking tests run without opening a camera or moving the mouse.
+## Care connections
+
+Use the website to approve a caregiver, then sign in to the phone dashboard at `/app/` with that caregiver's own account. Choose the patient. Settings are validated and audited under that person's identity. The desktop loads saved settings on connection and receives later changes while online.
+
+Call Caregiver sends a support notification to the phone dashboard. Phone connection requests appear on the desktop. The integrated demo does not transmit video or audio. No camera or microphone frames are sent to the central server.
+
+If the server goes offline, eye control keeps running and outbound requests retry. Delivery is announced only after the server accepts the support request. Website sign-out does not end desktop communication.
+
+F8/F9 and real-mouse takeover are helper controls; do not use them to operate the patient interface during a hands-free demonstration.
+
+## Privacy
+
+- Camera frames are processed on this computer and never saved or sent.
+- Patient progression entries are recorded in local `activity_log.db` and sent to the server only when the patient enabled logging. They contain action types and timings, not typed text.
+- With logging on, the log includes estimated gaze samples at 2 Hz, cursor and click coordinates, screen dimensions, blink duration, tracking interruptions, pause/resume, calibration fit error, ability test scores, zoom and key-action counts. No screen contents, screenshots, video or typed text are recorded.
+- The patient can turn logging on or off in the phone Activity log. Approved caregivers can view events but cannot enable logging.
+- Phone settings and caregiver actions are recorded separately in the server audit log.
 
 ## Files
 
 | File | Job |
 |---|---|
+| `main.py` | Starts everything and passes data between the parts |
+| `connect.py` | Pairs this computer with a patient account (run once) |
+| `launch.pyw`, `Start SignalSpeak.vbs` | Start the program on Windows without a terminal |
 | `config.py` | Every tunable setting, in one place |
 | `camera.py` | Webcam capture and face landmark tracking |
 | `gaze.py` | Turns eye and head measurements into a screen position |
 | `calibration.py` | The "look at the dots" screen |
-| `blink.py` | Long-blink click detection |
-| `overlay.py` | The four icon buttons, tabbed settings, notifications, ringing call pop-up |
+| `blink.py` | Detects the click movement (long blink or another movement) |
+| `ability_test.py` | Finds the movement and pointing method the patient can use most reliably |
+| `overlay.py` | The four icon buttons, tabbed settings, notifications, pop-ups |
+| `theme.py` | Colours, fonts and icons for every window |
 | `keyboard.py` | On-screen keyboard |
 | `zoom.py` | Lean-forward zoom |
-| `ability_test.py` | Finds the face movement the patient can make most reliably |
-| `lighting.py` | Dark-room detection and brightness boost |
+| `lighting.py` | Dark-room detection and automatic screen brightness |
 | `speech.py` | Read-aloud |
-| `video_call.py` | Corner video window for caregiver calls |
-| `activity_log.py` | Patient progression log |
-| `caregiver_link.py` | Talks to the caregiver backend |
-| `stub_server.py` | Stand-in backend until the real one exists |
-| `main.py` | Starts everything |
+| `activity_log.py`, `telemetry.py` | Patient progression log and gaze samples |
+| `caregiver_link.py` | Talks to the care server with the paired device token |
+| `video_call.py` | Corner video window. Video is switched off in the integrated demo |
+| `preview_overlay.py` | Mouse-only preview of the overlay |
+| `stub_server.py`, `caregiver_test_page.html` | From the original stand-alone desktop test setup. Not used by the integrated program |
 
-## For the website and app team
+## Checks
 
-`stub_server.py` is a stand-in backend. The list of web addresses it answers
-is at the top of that file. Point your app at it while building, or copy the
-same addresses into the real backend and change `backend_url` in `config.py`.
+From the repository root, standard-library-only adapter checks:
 
-Open http://127.0.0.1:8000 while it runs for a caregiver test page. It can
-change settings, request a video call and show both activity logs.
+```sh
+python -m unittest discover -s desktop/tests -p test_adapter.py -v
+```
 
-Setting names the caregiver app can change are the field names in `config.py`,
-for example `{"changes": {"click_hold_seconds": 0.8}, "by": "Sam"}`.
+With desktop dependencies installed, from this folder:
 
-## Ability test: click with the movement that works best
+```sh
+python -m unittest discover -s tests -v
+```
 
-ALS affects different muscles in different people and
-changes over time. The test asks for five movements (close eyes, raise
-eyebrows, open mouth, smile, pucker lips), three times each, and scores
-each one on whether it happened, how strong and fast it was, whether it
-also fires by accident during other movements, and whether it tires. The
-patient can then click with the best one (setting `click_signal`). Scores
-go in the progression log.
-
-The test also asks the patient to turn their head left, right, up and
-down. If they can turn far enough and hold steady, it suggests **head
-pointing** (setting `pointer_mode` = `head`): the cursor follows the
-direction of the face instead of the eyes. The camera measures head
-direction much more precisely than eye direction, so the cursor is
-steadier. Switching between eyes and head starts a new calibration, where
-the patient points their nose at each dot.
-
-The caregiver can change these settings and start the test remotely:
-`POST /caregiver/settings` with `{"changes": {"click_signal": "eyebrows", "pointer_mode": "head"}}`
-and `POST /caregiver/command` with `{"command": "ability_test"}`.
-
-## Privacy
-
-- Camera frames are processed on this computer and never saved.
-- The camera is only shared after BOTH the patient and the caregiver accept a video call.
-- The activity log stores counts and times of actions, not what was typed.
+Webcam calibration and actual eye-only use must be tested on the demonstration laptop.
 
 ## References
 
@@ -126,7 +122,3 @@ and `POST /caregiver/command` with `{"command": "ability_test"}`.
 - pyttsx3 (MPL 2.0): https://pyttsx3.readthedocs.io
 - screen-brightness-control (MIT): https://github.com/Crozzers/screen_brightness_control
 - Requests (Apache 2.0): https://requests.readthedocs.io
-
-## AI assistance
-
-This code was written with the assistance of Claude Code (Anthropic). The team reviewed and tested it.

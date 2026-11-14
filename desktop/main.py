@@ -47,6 +47,7 @@ from lighting import LowLightHelper
 from overlay import (INSTRUCTIONS, ButtonBar, ChoicePopup, IncomingCallPopup,
                      NotificationsPanel, SettingsPanel, Toast)
 from speech import Speaker
+from telemetry import GazeSampler
 from video_call import VideoWindow, frame_to_jpeg
 from zoom import LeanDetector, ZoomView
 
@@ -159,6 +160,11 @@ class EyeControl(QObject):
         self.lighting = LowLightHelper()
         self.link = CaregiverLink(self.settings.backend_url)
         self.link.event_received.connect(self.on_caregiver_event)
+        self.logging_enabled = False
+        self.gaze_sampler = GazeSampler()
+        self.tracking_found = None
+        self.last_connection_notice = 0.0
+        QTimer.singleShot(0, self.link.start)
 
         # Windows
         self.buttons = ButtonBar()
@@ -268,8 +274,13 @@ class EyeControl(QObject):
 
     def on_face(self, face) -> None:
         now = time.monotonic()
+        if face.found != getattr(self, 'tracking_found', None):
+            self.tracking_found = face.found
+            self.record('tracking_resumed' if face.found else 'tracking_lost')
         if self.settings.low_light_enabled:
             self.lighting.update(face.brightness, self.settings.low_light_threshold, now)
+        elif self.lighting.active:
+            self.lighting.turn_off()
         if self.link.video_active:
             self.link.my_frame = frame_to_jpeg(face.frame)
         if not face.found:
@@ -350,6 +361,13 @@ class EyeControl(QObject):
             screen.y() + y * (screen.height() - 1),
         )
         self.recent_targets.append((now, self.target))
+        if self.logging_enabled:
+            cursor = QCursor.pos()
+            sample = self.gaze_sampler.sample(gaze_point, (cursor.x(), cursor.y()),
+                                              (screen.width(), screen.height()), now,
+                                              (screen.x(), screen.y()))
+            if sample:
+                self.record('gaze', details=sample)
 
     def glide_cursor(self) -> None:
         """Runs about 120 times a second: move the cursor a little closer
@@ -407,7 +425,7 @@ class EyeControl(QObject):
         self.mouse.click(button, 2 if action == "double_click" else 1)
         play_click_sound()  # tells the patient the click went through
         # The blink length is logged: it shows how eyelid control is changing.
-        self.record("click", self.clicker.last_duration)
+        self.record("click", self.clicker.last_duration, details=self.cursor_details(action))
 
     def click_zoom_target(self, target: QPoint) -> None:
         """The patient clicked in the zoomed view: click the real spot."""
@@ -418,6 +436,7 @@ class EyeControl(QObject):
             self.position = QPointF(target)
             self.place_cursor(target)
             self.mouse.click(mouse.Button.left)
+            self.record('click', details=self.cursor_details('zoom_left_click'))
 
         # Wait a moment so the zoomed view has disappeared first.
         QTimer.singleShot(200, click_real_spot)
@@ -460,6 +479,10 @@ class EyeControl(QObject):
         self.settings.click_signal = name
         self.settings.click_signal_threshold = threshold
         save_settings(self.settings)
+        # Tell the care server too, so the phone dashboard shows the choice
+        # and the next start does not put the old one back.
+        self.link.send("/patient/settings", {"changes": {
+            "click_signal": name, "click_signal_threshold": threshold}})
         self.reset_tracking()
         self.record("settings_changed", note=f"patient chose {name} to click")
         self.announce("Saved. " + self.how_to_click())
@@ -469,6 +492,7 @@ class EyeControl(QObject):
         because the patient does something different at each dot."""
         self.settings.pointer_mode = mode
         save_settings(self.settings)
+        self.link.send("/patient/settings", {"changes": {"pointer_mode": mode}})
         self.record("settings_changed", note=f"patient chose {mode} pointing")
         if self.ability_results is not None:
             self.ability_results.close()
@@ -492,7 +516,7 @@ class EyeControl(QObject):
         self.popup = ChoicePopup(question, choices, on_choice)
 
     def ask_to_call(self) -> None:
-        self.ask("Call your caregiver?", ["Call", "Call with video", "Cancel"],
+        self.ask("Call your caregiver?", ["Call", "Cancel"],
                  self.call_caregiver)
 
     def call_caregiver(self, choice: str) -> None:
@@ -500,7 +524,7 @@ class EyeControl(QObject):
             return
         self.link.send("/patient/call", {"video": choice == "Call with video"})
         self.record("call_caregiver", note=choice)
-        self.announce("Your caregiver has been notified.")
+        self.announce("Your request is queued. Waiting for the care server.")
 
     def ask_to_quit(self) -> None:
         self.settings_panel.hide()
@@ -511,7 +535,36 @@ class EyeControl(QObject):
 
     def on_caregiver_event(self, event: dict) -> None:
         kind = event["type"]
-        if kind == "settings_changed":
+        if kind == "integration_ready":
+            self.logging_enabled = bool(event.get("logging", False))
+            pointer_before = self.settings.pointer_mode
+            apply_changes(self.settings, event["settings"])
+            if self.settings.click_signal not in MOVEMENTS:
+                self.settings.click_signal = "blink"
+            if self.settings.pointer_mode not in POINTER_COLUMNS:
+                self.settings.pointer_mode = "eyes"
+            save_settings(self.settings)
+            self.clicker = BlinkClicker()
+            if self.settings.pointer_mode != pointer_before:
+                # The saved pointing mode differs from the one calibration
+                # started with, so start it again with the right instruction.
+                self.start_calibration()
+            self.smoother.set_smoothing(self.settings.cursor_smoothing)
+            self.notify("Connected to the care server. Your saved phone settings are loaded.")
+            self.record("session_start")
+        elif kind == "call_delivered":
+            self.announce("Your caregiver notification was delivered to the care server.")
+        elif kind == "caregiver_message":
+            self.announce(event.get("message", "Your caregiver is asking to connect."))
+        elif kind == "logging_changed":
+            self.logging_enabled = bool(event.get('logging', False))
+            self.notify('Patient activity logging is now ' + ('on.' if self.logging_enabled else 'off.'))
+        elif kind == "connection_error":
+            now = time.monotonic()
+            if now - self.last_connection_notice > 30:
+                self.last_connection_notice = now
+                self.notify(event.get("message", "Care server unavailable."))
+        elif kind == "settings_changed":
             self.on_settings_changed(event)
         elif kind == "command" and event.get("command") == "ability_test":
             self.announce("Your caregiver started the ability test.")
@@ -576,9 +629,17 @@ class EyeControl(QObject):
             self.unread += 1
             self.buttons.set_unread(self.unread)
 
-    def record(self, kind: str, value: float = 0.0, note: str = "") -> None:
+    def cursor_details(self, action):
+        screen = self.app.primaryScreen().geometry()
+        cursor = QCursor.pos()
+        return {'action': action, 'cursor_x': cursor.x(), 'cursor_y': cursor.y(),
+                'screen_width': screen.width(), 'screen_height': screen.height(),
+                'screen_left': screen.x(), 'screen_top': screen.y()}
+
+    def record(self, kind: str, value: float = 0.0, note: str = "", details=None) -> None:
         """Save to the local log and send a copy to the backend."""
-        self.link.send("/patient/logs", self.log.record(kind, value, note))
+        if getattr(self, 'logging_enabled', False):
+            self.link.send("/patient/logs", self.log.record(kind, value, note, details))
 
     # ----- pause, errors and shutdown -----
 
@@ -590,6 +651,7 @@ class EyeControl(QObject):
 
     def toggle_pause(self) -> None:
         self.paused = not self.paused
+        self.record('paused' if self.paused else 'resumed')
         self.reset_tracking()
         self.toast.show_message(
             "Eye control paused. Press F8 to resume." if self.paused
@@ -612,6 +674,10 @@ class EyeControl(QObject):
 def main() -> None:
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    from caregiver_link import DEVICE_FILE
+    if not DEVICE_FILE.exists():
+        QMessageBox.information(None, "Pair your desktop", "Run python connect.py first and sign in with the patient account. Then run python main.py again.")
+        return
     control = EyeControl(app)
     app.aboutToQuit.connect(control.shut_down)
     sys.exit(app.exec())
