@@ -4,6 +4,7 @@ const $ = selector => document.querySelector(selector);
 let me = null, patients = [], selected = '', state = null, generation = 0;
 let activeCategory = 'all', period = 'All activity', entries = [], eventCursor = 0, saving = false;
 let lastInput = Date.now(), lastTouch = 0;
+let history = [], historyExhausted = false;
 const labels = { cursor_sensitivity: 'Cursor sensitivity', cursor_smoothing: 'Cursor stabilization', blink_threshold: 'Eye closure threshold', click_hold_seconds: 'Blink hold time', blink_action: 'Blink selection action', zoom_enabled: 'Lean-forward zoom', zoom_lean_ratio: 'Lean threshold', zoom_factor: 'Zoom factor', low_light_enabled: 'Low-light adaptation', low_light_threshold: 'Low-light threshold', speech_rate: 'Read-aloud speed' };
 const controls = [
  ['cursor_sensitivity', .25, 3, .05, '×'], ['cursor_smoothing', 0, .95, .05, ''],
@@ -33,7 +34,7 @@ async function enter(user) {
  await selectPatient(patients[0].patientId);
 }
 async function selectPatient(id) {
- generation++;selected=id;state=null;entries=[];eventCursor=0;$('#connection-error').textContent='';$('#integrated-settings').textContent='Loading patient controls…';renderLogs();await refresh(true);
+ generation++;selected=id;state=null;entries=[];history=[];historyExhausted=false;eventCursor=0;$('#connection-error').textContent='';$('#integrated-settings').textContent='Loading patient controls…';renderLogs();await refresh(true);
 }
 function renderSettings() {
  if(!state)return;
@@ -64,15 +65,55 @@ async function refresh(force=false) {
  const changed=!state||state.revision!==next.revision;state=next;
  $('#connection-error').textContent='';$('#desktop-status').textContent=state.connected?'● Desktop connected':'○ Desktop offline · changes saved for next connection';$('#desktop-status').dataset.online=state.connected;
  if(force||changed)renderSettings();
- entries=[...state.logs.map(e=>({title:e.kind.replaceAll('_',' '),detail:e.note||'Patient activity',time:e.time,source:'Desktop',category:'computer'})),...state.audit.map(e=>({title:e.action,detail:e.by+(e.changes?' · '+Object.entries(e.changes).map(([k,v])=>(labels[k]||k)+': '+v).join(', '):''),time:e.time,source:'Phone',category:e.action==='settings changed'?'settings':'privacy'}))].sort((a,b)=>b.time-a.time);
+ history = [...new Map([...history, ...state.logs].map(e=>[e.id,e])).values()].sort((a,b)=>b.id-a.id);
+ if (history.length < 200 || history.at(-1)?.id === 1) historyExhausted = true;
+ updateEntries();
+ renderTelemetry();
  renderLogs();
  const events=await api('care/events?patientId='+encodeURIComponent(id)+'&after='+eventCursor);
  if(epoch!==generation)return;
  for(const e of events){eventCursor=Math.max(eventCursor,e.id);if(e.type==='call'&&Date.now()/1000-(e.time||0)<120)notify(state.name+' is asking for caregiver support.');}
- }catch(e){if(epoch!==generation)return;$('#connection-error').textContent=e.message;$('#desktop-status').textContent='Connection unavailable';if(e.status===403){state=null;$('#integrated-settings').textContent='Access is no longer approved. Return to the website to review your care connections.';entries=[];renderLogs();}}
+ }catch(e){if(epoch!==generation)return;$('#connection-error').textContent=e.message;$('#desktop-status').textContent='Connection unavailable';if(e.status===403){state=null;history=[];renderTelemetry();$('#integrated-settings').textContent='Access is no longer approved. Return to the website to review your care connections.';entries=[];renderLogs();}}
 }
-function filteredEntries(){const start=new Date();start.setHours(0,0,0,0);const cutoff=period==='Today'?start.getTime()/1000:period==='Last 7 days'?Date.now()/1000-7*86400:0;return entries.filter(e=>(activeCategory==='all'||e.category===activeCategory)&&e.time>=cutoff);}
+function activityDetail(e) {
+ const d=e.details||{}, parts=[];
+ if(e.kind==='gaze'&&typeof d.gaze_x==='number')parts.push('Estimated gaze '+Math.round(d.gaze_x*100)+'% from left, '+Math.round(d.gaze_y*100)+'% from top');
+ if(typeof d.cursor_x==='number')parts.push('Cursor ('+d.cursor_x+', '+d.cursor_y+') px');
+ if(d.screen_width)parts.push('Screen '+d.screen_width+'×'+d.screen_height);
+ if(d.action)parts.push(d.action.replaceAll('_',' '));
+ if(e.kind==='click'&&e.value>0)parts.push('Blink '+Number(e.value).toFixed(2)+' sec');
+ if(e.kind==='calibration')parts.push('Calibration fit error '+(e.value*100).toFixed(1)+'%');
+ if(e.kind==='key')parts.push('One key action · text not recorded');
+ if(e.note)parts.push(e.note);
+ return parts.join(' · ')||'Patient activity';
+}
+function updateEntries(){
+ if(!state){entries=[];return;}
+ entries=[...history.map(e=>({kind:e.kind,title:e.kind.replaceAll('_',' '),detail:activityDetail(e),time:e.time,source:'Desktop',category:'computer'})),...state.audit.map(e=>({title:e.action,detail:e.by+(e.changes?' · '+Object.entries(e.changes).map(([k,v])=>(labels[k]||k)+': '+v).join(', '):''),time:e.time,source:'Phone',category:e.action==='settings changed'?'settings':'privacy'}))].sort((a,b)=>b.time-a.time);
+}
+function renderTelemetry(){
+ const t=state?.telemetry;$('#gaze-grid').replaceChildren();$('#click-markers').replaceChildren();$('#logging-choice').replaceChildren();
+ if(!state){$('#telemetry-metrics').textContent='Select an approved patient.';$('#latest-gaze').textContent='';return;}
+ const owner=patients.find(p=>p.patientId===selected)?.owner;
+ $('#logging-choice').innerHTML=owner?'<label class="logging-consent"><input type="checkbox" id="logging-toggle" '+(state.logging?'checked':'')+'>Record estimated gaze, cursor and click positions, and interaction events. Approved caregivers can view these logs.</label>':'<p>Patient activity logging: <strong>'+(state.logging?'On':'Off')+'</strong>. Only the patient can change this choice.</p>';
+ $('#logging-toggle')?.addEventListener('change',async e=>{const toggle=e.currentTarget,id=selected;toggle.disabled=true;try{await api('care/logging',{patientId:id,logging:toggle.checked});notify('Logging preference updated. The desktop receives it on its next poll.');await refresh();}catch(e){notify(e.message);toggle.checked=!toggle.checked;toggle.disabled=false;}});
+ $('#telemetry-metrics').innerHTML=[['Gaze samples',t?.gazeSamples||0],['Clicks',t?.clicks||0],['Key actions',t?.keys||0],['Tracking losses',t?.trackingLosses||0]].map(([label,count])=>'<div><strong>'+count+'</strong><span>'+label+'</span></div>').join('');
+ const heat=t?.heatmap||Array(60).fill(0),max=Math.max(1,...heat);
+ heat.forEach((count,i)=>{const cell=document.createElement('span');cell.style.opacity=count?String(.15+.85*count/max):'0';cell.title='Column '+(i%10+1)+', row '+(Math.floor(i/10)+1)+': '+count+' gaze samples';$('#gaze-grid').append(cell);});
+ const last=t?.latestGaze;
+ if(last?.screen_width)$('#gaze-screen').style.aspectRatio=last.screen_width+'/'+last.screen_height;
+ for(const e of history.filter(e=>e.kind==='click'&&e.details?.screen_width).slice(0,50)){
+ const d=e.details,x=(d.cursor_x-(d.screen_left||0))/d.screen_width,y=(d.cursor_y-(d.screen_top||0))/d.screen_height;
+ if(x<0||x>1||y<0||y>1)continue;
+ const marker=document.createElement('span');marker.className='click-marker';marker.style.left=(x*100)+'%';marker.style.top=(y*100)+'%';marker.title=(d.action||'click')+' · '+new Date(e.time*1000).toLocaleString();$('#click-markers').append(marker);
+ }
+ $('#latest-gaze').textContent=last?'Last estimate: '+Math.round(last.gaze_x*100)+'% from left, '+Math.round(last.gaze_y*100)+'% from top · '+new Date(last.time*1000).toLocaleString():'No gaze samples received yet. Use the updated paired desktop with patient logging enabled.';
+}
+function filteredEntries(){const start=new Date();start.setHours(0,0,0,0);const cutoff=period==='Today'?start.getTime()/1000:period==='Last 7 days'?Date.now()/1000-7*86400:0;return entries.filter(e=>(activeCategory==='all'||(['gaze','click'].includes(activeCategory)?e.kind===activeCategory:e.category===activeCategory))&&e.time>=cutoff);}
 function renderLogs(){
+ $('#load-earlier').disabled = !state || historyExhausted;
+ $('#log-page-status').textContent = state ? history.length+' of '+(state.telemetry?.total ?? history.length)+' retained patient events loaded; latest 200 audit entries shown.' : '';
+
  const list=$('#log-entries');list.replaceChildren();
  for(const e of filteredEntries()){
  const row=document.createElement('article');row.className='log-entry';
@@ -89,7 +130,7 @@ function renderLogs(){
  const max=Math.max(1,...days.map(d=>d.count));
  $('.y-labels').innerHTML=`<span>${max}</span><span>${Math.round(max/2)}</span><span>0</span>`;
  for(const d of days){const column=document.createElement('div');column.className='day-column';const stack=document.createElement('div');stack.className='bar-stack';const bar=document.createElement('i');bar.className='bar-click';bar.style.height=(d.count/max*100)+'%';stack.append(bar);const label=document.createElement('small');label.textContent=d.date.toLocaleDateString(undefined,{weekday:'short'});column.append(stack,label);column.title=d.count+' recorded events';chart.append(column);}
- $('.chart-legend').textContent='Total recorded events per day';$('.log-summary strong').textContent='Recent recorded activity';
+ $('.chart-legend').textContent='Loaded recorded events per day';$('.log-summary strong').textContent='Recent recorded activity';
 }
 $('#login-form').addEventListener('submit',async e=>{e.preventDefault();const button=e.currentTarget.querySelector('button');button.disabled=true;$('#login-error').textContent='';try{const user=await api('login',{email:$('#username').value,password:$('#password').value});$('#password').value='';await enter(user);}catch(e){$('#login-error').textContent=e.message;}finally{button.disabled=false;}});
 async function signOut(){try{await api('logout',{});}catch{}showLogin();showView('home');}
@@ -106,7 +147,8 @@ $('#profile-menu-toggle').onclick=()=>{const menu=$('#account-menu');menu.hidden
  $('#send-call-request').onclick=async()=>{if(!selected)return notify('Select an approved patient first.');const b=$('#send-call-request');b.disabled=true;try{await api('care/call',{patientId:selected});$('#camera-modal').hidden=true;notify('Connection request queued for the patient’s desktop. No camera or microphone was enabled.');await refresh();}catch(e){notify(e.message);}finally{b.disabled=false;}};
  document.querySelectorAll('.filter[data-category]').forEach(f=>f.onclick=()=>{document.querySelectorAll('.filter').forEach(el=>el.classList.remove('active'));f.classList.add('active');activeCategory=f.dataset.category;renderLogs();});
  $('.log-filters select').value='All activity';$('.log-filters select').onchange=e=>{period=e.target.value;renderLogs();};
- $('#export-logs').onclick=()=>{if(!state)return notify('Select an approved patient first.');const blob=new Blob([JSON.stringify({patientId:selected,patient:state.name,patientActivity:state.logs,caregiverAudit:state.audit},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='signalspeak-'+selected+'-logs.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
+ $('#export-logs').onclick=async()=>{if(!state)return notify('Select an approved patient first.');const id=selected,button=$('#export-logs');button.disabled=true;try{const all=await api('care/export?patientId='+encodeURIComponent(id));const blob=new Blob([JSON.stringify(all,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='signalspeak-'+id+'-logs.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}catch(e){notify(e.message);}finally{button.disabled=false;}};
+ $('#load-earlier').onclick=async()=>{if(!selected||!history.length)return;const id=selected,epoch=generation,button=$('#load-earlier');button.disabled=true;try{const page=await api('care/logs?patientId='+encodeURIComponent(id)+'&before='+Math.min(...history.map(e=>e.id)));if(epoch!==generation)return;history=[...new Map([...history,...page.entries].map(e=>[e.id,e])).values()].sort((a,b)=>b.id-a.id);historyExhausted=page.nextBefore===null;updateEntries();renderLogs();}catch(e){notify(e.message);}finally{button.disabled=historyExhausted;}};
  document.querySelectorAll('.guide-link').forEach(b=>b.onclick=()=>{location.href='/#instructions';});
  document.querySelector('.guide-article .button').onclick=()=>location.href='/#instructions';
  ['pointerdown','keydown','scroll'].forEach(name=>window.addEventListener(name,()=>{lastInput=Date.now();if(me&&Date.now()-lastTouch>30000){lastTouch=Date.now();api('activity',{}).catch(()=>{});}},{passive:true}));

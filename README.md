@@ -58,6 +58,14 @@ Implemented: account creation/sign-in, consent, linking and revocation, patient 
 
 Remaining: video/audio transport (explicitly disabled), instruction video, packaged executable, real-phone networking/HTTPS, production identity, self-service deletion and preference editing. Camera accuracy, OS permissions and eye-only use must be tested on the actual demo laptop. No hardware behavior is implied by API tests.
 
+## Patient activity detail
+
+The updated desktop samples estimated gaze twice per second during active calibrated eye control. Events include normalized gaze coordinates, cursor pixels and screen dimensions; clicks also include the action and blink duration. Tracking loss/recovery, pause/resume, calibration fit error, zoom, key-action counts, sessions and support requests are recorded. Typed text and screen contents are never recorded.
+
+Patients and approved caregivers can view these events in the phone Activity log. It includes a gaze-density map, recent click markers, event details, gaze/click filters, older-record paging, and full retained-data JSON export. The server retains the latest 20,000 patient events; local SQLite records remain on the desktop. The heatmap uses all server-retained gaze samples and is independent of the event-list date filter. It is an estimate from the prototype, not a validated measurement of attention.
+
+Only the patient can turn activity logging on/off using the phone Activity log checkbox. The desktop receives that change on its next poll. Disabling logging stops future collection without deleting older records. Server reads and exports enforce the same patient/caregiver permissions as settings. Previously downloaded desktops need the updated main.py, activity_log.py and telemetry.py, then a restart; the current source ZIP includes them.
+
 ## Checks
 
 ```sh

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
+import { validateTelemetry, summarizeTelemetry } from './telemetry.mjs';
 
 export async function createCareApi({ accounts, saveAccounts, dataDir, body, reply, error, canManagePatient }) {
   const file = path.join(dataDir, 'care.json');
@@ -13,7 +14,11 @@ export async function createCareApi({ accounts, saveAccounts, dataDir, body, rep
   const defaults = { cursor_sensitivity: 1, cursor_smoothing: .5, blink_threshold: .5, click_hold_seconds: .6, blink_action: 'left_click', zoom_enabled: true, zoom_lean_ratio: 1.18, zoom_factor: 2.5, low_light_enabled: true, low_light_threshold: 70, speech_rate: 160 };
   const bounds = { cursor_sensitivity: [.25, 3], cursor_smoothing: [0, .95], blink_threshold: [.1, .95], click_hold_seconds: [.3, 2], zoom_lean_ratio: [1.05, 2], zoom_factor: [1.5, 4], low_light_threshold: [0, 255], speech_rate: [80, 260] };
   const digest = value => createHash('sha256').update(value).digest('hex');
-  function record(patient) { return records[patient.patientId] ||= { settings: { ...defaults }, revision: 0, events: [], logs: [], audit: [], nextId: 1 }; }
+  function record(patient) {
+    const r = records[patient.patientId] ||= { settings: { ...defaults }, revision: 0, events: [], logs: [], audit: [], nextId: 1 };
+    if (!r.nextLogId) { r.logs.forEach((e, i) => e.id = i + 1); r.nextLogId = r.logs.length + 1; }
+    return r;
+  }
   function event(r, side, type, details = {}) { r.events.push({ id: r.nextId++, side, type, time: Date.now() / 1000, ...details }); r.events = r.events.slice(-1000); }
   function audit(r, actor, action, details = {}) { r.audit.push({ time: Date.now() / 1000, action, actorId: actor.id, by: actor.name, ...details }); r.audit = r.audit.slice(-2000); }
   function device(req) {
@@ -35,7 +40,23 @@ export async function createCareApi({ accounts, saveAccounts, dataDir, body, rep
     if (!patient || (!isDevice && !canManagePatient(actor, patient))) throw error(403, 'Patient access is not approved.');
     const r = record(patient);
     const endpoint = url.pathname.replace(isDevice ? '/api/device/' : '/api/care/', '');
-    if (req.method === 'GET' && endpoint === 'state') return reply(res, 200, { patientId: patient.patientId, name: patient.name, settings: r.settings, revision: r.revision, logging: patient.logging, connected: Date.now() - (online.get(patient.patientId) || 0) < 5000, logs: r.logs.slice(-200).reverse(), audit: r.audit.slice(-200).reverse() });
+    if (req.method === 'GET' && endpoint === 'state') return reply(res, 200, { patientId: patient.patientId, name: patient.name, settings: r.settings, revision: r.revision, logging: patient.logging, connected: Date.now() - (online.get(patient.patientId) || 0) < 5000, logs: r.logs.slice(-200).reverse(), audit: r.audit.slice(-200).reverse(), telemetry: summarizeTelemetry(r.logs) });
+    if (req.method === 'GET' && endpoint === 'logs' && !isDevice) {
+      const before = Number(url.searchParams.get('before') || Number.MAX_SAFE_INTEGER);
+      const limit = Number(url.searchParams.get('limit') || 200);
+      if (!Number.isSafeInteger(before) || !Number.isInteger(limit) || limit < 1 || limit > 500) throw error(400, 'Invalid log page.');
+      const all = r.logs.filter(e => e.id < before).reverse();
+      const entries = all.slice(0, limit);
+      return reply(res, 200, { entries, nextBefore: all.length > limit ? entries.at(-1).id : null, total: r.logs.length, retainedLimit: 20000 });
+    }
+    if (req.method === 'GET' && endpoint === 'export' && !isDevice) return reply(res, 200, { patientId: patient.patientId, patient: patient.name, patientActivity: r.logs, caregiverAudit: r.audit, retainedLimit: 20000 });
+    if (req.method === 'POST' && endpoint === 'logging' && !isDevice) {
+      if (patient.id !== actor.id) throw error(403, 'Only the patient can change logging consent.');
+      if (typeof b.logging !== 'boolean') throw error(400, 'Choose whether to enable logging.');
+      patient.logging = b.logging; patient.loggingConsentAt = new Date().toISOString(); patient.loggingConsentVersion = 'spatial-activity-1';
+      event(r, 'patient', 'logging_changed', { logging: patient.logging });
+      await saveAccounts(); await persist(); return reply(res, 200, { logging: patient.logging });
+    }
     if (req.method === 'GET' && endpoint === 'bootstrap' && isDevice) return reply(res, 200, { settings: r.settings, logging: patient.logging, eventCursor: r.nextId - 1 });
     if (req.method === 'GET' && (endpoint === 'patient/events' || endpoint === 'events')) {
       const side = isDevice ? 'patient' : 'caregiver'; const after = Number(url.searchParams.get('after') || 0);
@@ -59,7 +80,10 @@ export async function createCareApi({ accounts, saveAccounts, dataDir, body, rep
     if (req.method === 'POST' && endpoint === 'patient/logs' && isDevice) {
       if (patient.logging) {
         if (typeof b.kind !== 'string' || b.kind.length > 80) throw error(400, 'Invalid activity entry.');
-        r.logs.push({ time: Date.now() / 1000, kind: b.kind, value: typeof b.value === 'number' && Number.isFinite(b.value) ? b.value : 0, note: String(b.note || '').slice(0, 500) }); r.logs = r.logs.slice(-3000); await persist();
+        let details;
+        try { details = validateTelemetry(b.details); } catch (e) { throw error(400, e.message); }
+        if (b.time !== undefined && (typeof b.time !== 'number' || !Number.isFinite(b.time) || b.time <= 0 || b.time > Date.now() / 1000 + 300)) throw error(400, 'Invalid activity timestamp.');
+        r.logs.push({ id: r.nextLogId++, time: b.time || Date.now() / 1000, receivedAt: Date.now() / 1000, kind: b.kind, value: typeof b.value === 'number' && Number.isFinite(b.value) ? b.value : 0, note: String(b.note || '').slice(0, 500), details }); r.logs = r.logs.slice(-20000); await persist();
       }
       return reply(res, 200, { ok: true, logging: patient.logging });
     }

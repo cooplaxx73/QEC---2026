@@ -38,6 +38,8 @@ If the server goes offline, eye control keeps running and outbound requests retr
 
 Patient progression entries are recorded in local `activity_log.db` and sent to the server only when logging was enabled at signup. They contain action types/timings, not typed text. Phone settings and caregiver actions are recorded separately in the server audit log.
 
+The Activity log now includes estimated gaze samples at 2 Hz, cursor and click coordinates, screen dimensions, blink duration, tracking interruptions, pause/resume, calibration fit error, zoom and key-action counts. No screen contents, screenshots, video or typed text are recorded. The patient can turn logging on/off in the phone Activity log; approved caregivers can view events but cannot enable logging. Existing SQLite files migrate automatically to store spatial details. Server retention is 20,000 patient events; export and older-event paging are available in the phone app.
+
 ## Checks
 
 From the repository root, standard-library-only adapter checks:

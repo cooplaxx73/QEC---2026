@@ -43,6 +43,7 @@ from lighting import LowLightHelper
 from overlay import (INSTRUCTIONS, ButtonBar, ChoicePopup, IncomingCallPopup,
                      NotificationsPanel, SettingsPanel, Toast)
 from speech import Speaker
+from telemetry import GazeSampler
 from video_call import VideoWindow, frame_to_jpeg
 from zoom import LeanDetector, ZoomView
 
@@ -153,6 +154,8 @@ class EyeControl(QObject):
         self.link = CaregiverLink(self.settings.backend_url)
         self.link.event_received.connect(self.on_caregiver_event)
         self.logging_enabled = False
+        self.gaze_sampler = GazeSampler()
+        self.tracking_found = None
         self.last_connection_notice = 0.0
         QTimer.singleShot(0, self.link.start)
 
@@ -243,6 +246,9 @@ class EyeControl(QObject):
 
     def on_face(self, face) -> None:
         now = time.monotonic()
+        if face.found != getattr(self, 'tracking_found', None):
+            self.tracking_found = face.found
+            self.record('tracking_resumed' if face.found else 'tracking_lost')
         if self.settings.low_light_enabled:
             self.lighting.update(face.brightness, self.settings.low_light_threshold, now)
         if self.link.video_active:
@@ -312,6 +318,13 @@ class EyeControl(QObject):
             screen.y() + y * (screen.height() - 1),
         )
         self.recent_targets.append((now, self.target))
+        if self.logging_enabled:
+            cursor = QCursor.pos()
+            sample = self.gaze_sampler.sample(gaze_point, (cursor.x(), cursor.y()),
+                                              (screen.width(), screen.height()), now,
+                                              (screen.x(), screen.y()))
+            if sample:
+                self.record('gaze', details=sample)
 
     def glide_cursor(self) -> None:
         """Runs about 120 times a second: move the cursor a little closer
@@ -369,7 +382,7 @@ class EyeControl(QObject):
         self.mouse.click(button, 2 if action == "double_click" else 1)
         play_click_sound()  # tells the patient the click went through
         # The blink length is logged: it shows how eyelid control is changing.
-        self.record("click", self.clicker.last_duration)
+        self.record("click", self.clicker.last_duration, details=self.cursor_details(action))
 
     def click_zoom_target(self, target: QPoint) -> None:
         """The patient clicked in the zoomed view: click the real spot."""
@@ -380,6 +393,7 @@ class EyeControl(QObject):
             self.position = QPointF(target)
             self.place_cursor(target)
             self.mouse.click(mouse.Button.left)
+            self.record('click', details=self.cursor_details('zoom_left_click'))
 
         # Wait a moment so the zoomed view has disappeared first.
         QTimer.singleShot(200, click_real_spot)
@@ -431,6 +445,9 @@ class EyeControl(QObject):
             self.announce("Your caregiver notification was delivered to the care server.")
         elif kind == "caregiver_message":
             self.announce(event.get("message", "Your caregiver is asking to connect."))
+        elif kind == "logging_changed":
+            self.logging_enabled = bool(event.get('logging', False))
+            self.notify('Patient activity logging is now ' + ('on.' if self.logging_enabled else 'off.'))
         elif kind == "connection_error":
             now = time.monotonic()
             if now - self.last_connection_notice > 30:
@@ -490,10 +507,17 @@ class EyeControl(QObject):
             self.unread += 1
             self.buttons.set_unread(self.unread)
 
-    def record(self, kind: str, value: float = 0.0, note: str = "") -> None:
+    def cursor_details(self, action):
+        screen = self.app.primaryScreen().geometry()
+        cursor = QCursor.pos()
+        return {'action': action, 'cursor_x': cursor.x(), 'cursor_y': cursor.y(),
+                'screen_width': screen.width(), 'screen_height': screen.height(),
+                'screen_left': screen.x(), 'screen_top': screen.y()}
+
+    def record(self, kind: str, value: float = 0.0, note: str = "", details=None) -> None:
         """Save to the local log and send a copy to the backend."""
-        if self.logging_enabled:
-            self.link.send("/patient/logs", self.log.record(kind, value, note))
+        if getattr(self, 'logging_enabled', False):
+            self.link.send("/patient/logs", self.log.record(kind, value, note, details))
 
     # ----- pause, errors and shutdown -----
 
@@ -505,6 +529,7 @@ class EyeControl(QObject):
 
     def toggle_pause(self) -> None:
         self.paused = not self.paused
+        self.record('paused' if self.paused else 'resumed')
         self.reset_tracking()
         self.toast.show_message(
             "Eye control paused. Press F8 to resume." if self.paused

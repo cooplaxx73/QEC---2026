@@ -33,6 +33,7 @@ class TrackingInterruptions(unittest.TestCase):
             paused=False,
             toast=Mock(),
             link=SimpleNamespace(video_active=False),
+            record=Mock(),
         )
         self.control.reset_tracking = lambda: EyeControl.reset_tracking(self.control)
         self.control.clicker.update(1.0, 1.0, 0.5, 0.6)
